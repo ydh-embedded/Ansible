@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="msapplication-tap-highlight" content="no">
+    <title>{{ app_name }} - Monitoring App</title>
+    
+    <!-- iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{{ app_name }}">
+    
+    <!-- Android Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="{{ primary_color }}">
+    
+    <!-- App Icons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/favicon-16x16.png">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Ionic CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ionic/core@{{ ionic_version }}/css/ionic.bundle.css">
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles/style.css">
+    
+    <!-- Custom CSS Variables -->
+    <style>
+        :root {
+            --ion-color-primary: {{ primary_color }};
+            --ion-color-secondary: {{ secondary_color }};
+            --ion-color-tertiary: {{ accent_color }};
+            --ion-background-color: {{ background_color }};
+        }
+    </style>
+</head>
+<body>
+    <!-- Main App Container -->
+    <ion-app>
+        <!-- Header -->
+        <ion-header translucent="true">
+            <ion-toolbar color="primary">
+                <ion-title>📊 {{ app_name }} Dashboard</ion-title>
+                <ion-buttons slot="end">
+                    <ion-button id="settings-btn" fill="clear">
+                        <ion-icon name="settings-outline"></ion-icon>
+                    </ion-button>
+                    <ion-button id="sync-btn" fill="clear">
+                        <ion-icon name="sync-outline"></ion-icon>
+                    </ion-button>
+                </ion-buttons>
+            </ion-toolbar>
+        </ion-header>
+        
+        <!-- Main Content -->
+        <ion-content fullscreen="true" class="ion-padding">
+            <!-- Status Banner -->
+            <ion-card class="status-banner" color="success">
+                <ion-card-content>
+                    <div class="status-content">
+                        <ion-icon name="checkmark-circle-outline" class="status-icon"></ion-icon>
+                        <div>
+                            <div class="status-title">System Online</div>
+                            <div class="status-subtitle">Letzte Aktualisierung: <span id="last-update">--:--</span></div>
+                        </div>
+                    </div>
+                </ion-card-content>
+            </ion-card>
+
+            <!-- Dashboard Grid -->
+            <div class="dashboard-grid">
+                <!-- Weather Card -->
+                <ion-card class="dashboard-card gradient-blue" id="weather-card">
+                    <ion-card-header>
+                        <ion-card-subtitle>Umgebung</ion-card-subtitle>
+                        <ion-card-title>🌤️ Wetter</ion-card-title>
+                    </ion-card-header>
+                    <ion-card-content>
+                        <div id="weather-content">
+                            <div class="weather-temp">--°C</div>
+                            <div class="weather-desc">Laden...</div>
+                            <div class="weather-details">
+                                <div class="weather-detail">
+                                    <ion-icon name="water-outline"></ion-icon>
+                                    <span id="humidity">--%</span>
+                                </div>
+                                <div class="weather-detail">
+                                    <ion-icon name="speedometer-outline"></ion-icon>
+                                    <span id="pressure">-- hPa</span>
+                                </div>
+                            </div>
+                        </div>
+                    </ion-card-content>
+                </ion-card>
+                
+                <!-- Measurements Card -->
+                <ion-card class="dashboard-card gradient-green" id="measurement-card">
+                    <ion-card-header>
+                        <ion-card-subtitle>Aktuell</ion-card-subtitle>
+                        <ion-card-title>📏 Messungen</ion-card-title>
+                    </ion-card-header>
+                    <ion-card-content>
+                        <div id="measurement-content">
+                            <div class="measurement-value" id="current-measurement">0.0</div>
+                            <div class="measurement-unit">Units</div>
+                            <div class="measurement-trend">
+                                <ion-icon name="trending-up-outline" id="trend-icon"></ion-icon>
+                                <span id="trend-text">Stabil</span>
+                            </div>
+                        </div>
+                    </ion-card-content>
+                </ion-card>
+
+                <!-- Statistics Card -->
+                <ion-card class="dashboard-card gradient-orange" id="stats-card">
+                    <ion-card-header>
+                        <ion-card-subtitle>24h Übersicht</ion-card-subtitle>
+                        <ion-card-title>📈 Statistiken</ion-card-title>
+                    </ion-card-header>
+                    <ion-card-content>
+                        <div id="stats-content">
+                            <div class="stat-item">
+                                <div class="stat-label">Minimum</div>
+                                <div class="stat-value" id="min-value">--</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Maximum</div>
+                                <div class="stat-value" id="max-value">--</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Durchschnitt</div>
+                                <div class="stat-value" id="avg-value">--</div>
+                            </div>
+                        </div>
+                    </ion-card-content>
+                </ion-card>
+                
+                <!-- Chart Card -->
+                <ion-card class="dashboard-card full-width" id="chart-card">
+                    <ion-card-header>
+                        <ion-card-title>📊 Verlaufsdiagramm</ion-card-title>
+                        <ion-buttons slot="end">
+                            <ion-button fill="clear" id="chart-refresh">
+                                <ion-icon name="refresh-outline"></ion-icon>
+                            </ion-button>
+                            <ion-button fill="clear" id="chart-settings">
+                                <ion-icon name="options-outline"></ion-icon>
+                            </ion-button>
+                        </ion-buttons>
+                    </ion-card-header>
+                    <ion-card-content>
+                        <div id="chart-container">
+                            <canvas id="main-chart" width="400" height="200"></canvas>
+                            <div id="chart-fallback" style="display: none;" class="chart-fallback">
+                                <ion-spinner name="crescent"></ion-spinner>
+                                <p>📊 Diagramm wird geladen...</p>
+                            </div>
+                        </div>
+                    </ion-card-content>
+                </ion-card>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <ion-button expand="block" id="protocol-btn" class="action-button" color="primary">
+                    <ion-icon name="document-text-outline" slot="start"></ion-icon>
+                    Protokoll anzeigen
+                </ion-button>
+                
+                <ion-button expand="block" id="export-btn" class="action-button" fill="outline" color="secondary">
+                    <ion-icon name="download-outline" slot="start"></ion-icon>
+                    Daten exportieren
+                </ion-button>
+                
+                <ion-button expand="block" id="transfer-btn" class="action-button" fill="outline" color="tertiary">
+                    <ion-icon name="cloud-upload-outline" slot="start"></ion-icon>
+                    Daten synchronisieren
+                </ion-button>
+            </div>
+
+            <!-- Quick Actions Fab -->
+            <ion-fab vertical="bottom" horizontal="end" slot="fixed">
+                <ion-fab-button color="primary">
+                    <ion-icon name="add"></ion-icon>
+                </ion-fab-button>
+                <ion-fab-list side="top">
+                    <ion-fab-button color="secondary" id="quick-measure">
+                        <ion-icon name="analytics-outline"></ion-icon>
+                    </ion-fab-button>
+                    <ion-fab-button color="tertiary" id="quick-export">
+                        <ion-icon name="share-outline"></ion-icon>
+                    </ion-fab-button>
+                </ion-fab-list>
+            </ion-fab>
+        </ion-content>
+        
+        <!-- Bottom Tab Bar -->
+        <ion-tabs>
+            <ion-tab-bar slot="bottom" color="light">
+                <ion-tab-button tab="dashboard" class="tab-selected">
+                    <ion-icon name="speedometer-outline"></ion-icon>
+                    <ion-label>Dashboard</ion-label>
+                </ion-tab-button>
+                
+                <ion-tab-button tab="measurements">
+                    <ion-icon name="analytics-outline"></ion-icon>
+                    <ion-label>Messungen</ion-label>
+                </ion-tab-button>
+                
+                <ion-tab-button tab="protocol">
+                    <ion-icon name="list-outline"></ion-icon>
+                    <ion-label>Protokoll</ion-label>
+                </ion-tab-button>
+                
+                <ion-tab-button tab="settings">
+                    <ion-icon name="settings-outline"></ion-icon>
+                    <ion-label>Einstellungen</ion-label>
+                </ion-tab-button>
+            </ion-tabs>
+        </ion-tabs>
+    </ion-app>
+    
+    <!-- Loading Overlay -->
+    <ion-loading id="loading-overlay">
+        <div class="loading-content">
+            <ion-spinner name="crescent" color="primary"></ion-spinner>
+            <p>Daten werden geladen...</p>
+        </div>
+    </ion-loading>
+
+    <!-- Generated by {{ script_version }} on {{ ansible_date_time.date }} -->
+    
+    <!-- Ionic JavaScript -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@ionic/core@{{ ionic_version }}/dist/ionic/ionic.esm.js"></script>
+    <script nomodule src="https://cdn.jsdelivr.net/npm/@ionic/core@{{ ionic_version }}/dist/ionic/ionic.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@{{ chart_js_version }}"></script>
+    
+    <!-- App JavaScript Modules -->
+    <script src="js/app.js"></script>
+    <script src="js/chart.js"></script>
+    <script src="js/weather.js"></script>
+    <script src="js/measurement.js"></script>
+    <script src="js/protocol.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/transfer.js"></script>
+    <script src="js/keyboard-navigation.js"></script>
+
+    {% if enable_analytics %}
+    <!-- Analytics -->
+    <script>
+        // Google Analytics or other analytics code
+        console.log('📊 Analytics enabled for {{ project_name }}');
+    </script>
+    {% endif %}
+</body>
+</html>

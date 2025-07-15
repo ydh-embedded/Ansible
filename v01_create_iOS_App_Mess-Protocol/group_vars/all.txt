@@ -1,0 +1,149 @@
+---
+# Project Configuration
+project_name: "iOS-v00"
+github_username: "ydh-embedded"
+author_name: "Your Name"
+author_email: "your.email@example.com"
+
+# Versions
+script_version: "2.0.0"
+ionic_version: "7.5.0"
+capacitor_version: "5.5.0"
+chart_js_version: "4.4.0"
+node_version: "18"
+
+# Feature Flags (werden zur Laufzeit überschrieben)
+enable_quality: false
+enable_build: false
+enable_cicd: false
+enable_analytics: false
+enable_backup: false
+enable_enterprise: false
+
+# Paths
+project_path: "{{ project_base_dir }}/{{ project_name }}"
+template_path: "{{ role_path }}/templates"
+
+# iOS/Android Configuration
+app_id: "com.ydh.{{ project_name | lower | replace('-', '') }}"
+app_name: "{{ project_name }}"
+bundle_id: "{{ app_id }}"
+version_code: "1"
+version_name: "1.0.0"
+
+# Colors and Styling
+primary_color: "#3498db"
+secondary_color: "#2ecc71"
+accent_color: "#f39c12"
+ios_blue: "#007AFF"
+ios_green: "#34C759"
+ios_orange: "#FF9500"
+background_color: "#ffffff"
+
+# Development Tools
+code_editor: "vscode"
+package_manager: "npm"
+linter: "eslint"
+formatter: "prettier"
+
+# CI/CD Configuration
+ci_provider: "github-actions"
+deploy_target: "github-pages"
+test_runner: "jest"
+enable_coverage: true
+
+# File Patterns
+source_files:
+  - "*.js"
+  - "*.html"
+  - "*.css"
+  - "*.ts"
+  - "*.json"
+
+excluded_patterns:
+  - "node_modules"
+  - "dist"
+  - ".ionic"
+  - "ios/App/build"
+  - "android/app/build"
+  - ".git"
+  - "*.log"
+  - ".DS_Store"
+  - "Thumbs.db"
+
+# Dependencies
+core_dependencies:
+  - "@ionic/core"
+  - "@capacitor/core"
+  - "@capacitor/app"
+  - "@capacitor/haptics"
+  - "@capacitor/keyboard"
+  - "@capacitor/status-bar"
+  - "chart.js"
+
+dev_dependencies:
+  - "@ionic/cli"
+  - "@capacitor/cli"
+  - "@capacitor/ios"
+  - "@capacitor/android"
+
+quality_dependencies:
+  - "eslint"
+  - "prettier"
+  - "@typescript-eslint/parser"
+  - "@typescript-eslint/eslint-plugin"
+
+# Directory Structure
+directories:
+  source:
+    - "src/sites"
+    - "src/js"
+    - "src/styles"
+    - "src/assets/icons"
+  platforms:
+    - "ios"
+    - "android"
+  resources:
+    - "resources/ios"
+    - "resources/android"
+  config:
+    - "capacitor"
+    - ".vscode"
+  scripts:
+    - "scripts"
+
+# Icon Sizes
+icon_sizes:
+  ios:
+    - "20x20"
+    - "29x29"
+    - "40x40"
+    - "60x60"
+    - "76x76"
+    - "83.5x83.5"
+    - "1024x1024"
+  android:
+    - "36x36"
+    - "48x48"
+    - "72x72"
+    - "96x96"
+    - "144x144"
+    - "192x192"
+    - "512x512"
+
+# Backup Configuration
+backup_enabled: false
+backup_schedule: "daily"
+backup_retention: "30"
+backup_destinations:
+  - "local"
+  - "cloud"
+
+# Analytics Configuration
+analytics_enabled: false
+analytics_provider: "google"
+tracking_events:
+  - "app_start"
+  - "screen_view"
+  - "button_click"
+  - "error"

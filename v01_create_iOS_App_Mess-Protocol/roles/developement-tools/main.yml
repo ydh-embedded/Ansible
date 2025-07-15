@@ -1,0 +1,282 @@
+---
+- name: "🔧 Create .vscode directory"
+  file:
+    path: "{{ project_path }}/.vscode"
+    state: directory
+    mode: '0755'
+  when: enable_quality|bool
+  tags: [dev, vscode, setup]
+
+- name: "🔧 Generate VS Code settings"
+  template:
+    src: vscode-settings.json.j2
+    dest: "{{ project_path }}/.vscode/settings.json"
+    mode: '0644'
+  when: enable_quality|bool
+  tags: [dev, vscode, settings]
+
+- name: "🔌 Generate VS Code extensions recommendations"
+  template:
+    src: vscode-extensions.json.j2
+    dest: "{{ project_path }}/.vscode/extensions.json"
+    mode: '0644'
+  when: enable_quality|bool
+  tags: [dev, vscode, extensions]
+
+- name: "🔍 Generate ESLint configuration"
+  template:
+    src: eslintrc.json.j2
+    dest: "{{ project_path }}/.eslintrc.json"
+    mode: '0644'
+  when: enable_quality|bool
+  tags: [dev, lint, eslint]
+
+- name: "💅 Generate Prettier configuration"
+  template:
+    src: prettierrc.json.j2
+    dest: "{{ project_path }}/.prettierrc.json"
+    mode: '0644'
+  when: enable_quality|bool
+  tags: [dev, format, prettier]
+
+- name: "📝 Generate TypeScript configuration"
+  template:
+    src: tsconfig.json.j2
+    dest: "{{ project_path }}/tsconfig.json"
+    mode: '0644'
+  when: enable_quality|bool
+  tags: [dev, typescript, config]
+
+- name: "🔨 Generate build configuration"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ project_path }}/{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - src: webpack.config.js.j2
+      dest: webpack.config.js
+    - src: rollup.config.js.j2
+      dest: rollup.config.js
+  when: enable_build|bool
+  tags: [dev, build, config]
+
+- name: "🤖 Create GitHub workflows directory"
+  file:
+    path: "{{ project_path }}/.github/workflows"
+    state: directory
+    mode: '0755'
+  when: enable_cicd|bool
+  tags: [dev, cicd, github]
+
+- name: "🤖 Generate GitHub Actions CI/CD workflow"
+  template:
+    src: github-actions-ci.yml.j2
+    dest: "{{ project_path }}/.github/workflows/ci.yml"
+    mode: '0644'
+  when: enable_cicd|bool
+  tags: [dev, cicd, workflow]
+
+- name: "🚀 Generate GitHub Actions deployment workflow"
+  template:
+    src: github-actions-deploy.yml.j2
+    dest: "{{ project_path }}/.github/workflows/deploy.yml"
+    mode: '0644'
+  when: enable_cicd|bool and enable_auto_deploy|default(false)|bool
+  tags: [dev, cicd, deploy]
+
+- name: "🧪 Generate test configuration"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ project_path }}/{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - src: jest.config.js.j2
+      dest: jest.config.js
+    - src: cypress.config.js.j2
+      dest: cypress.config.js
+  when: enable_cicd|bool
+  tags: [dev, test, config]
+
+- name: "📊 Create scripts directory"
+  file:
+    path: "{{ project_path }}/scripts"
+    state: directory
+    mode: '0755'
+  when: enable_analytics|bool or enable_backup|bool
+  tags: [dev, scripts, setup]
+
+- name: "📊 Generate analytics script"
+  template:
+    src: analytics.sh.j2
+    dest: "{{ project_path }}/scripts/analytics.sh"
+    mode: '0755'
+  when: enable_analytics|bool
+  tags: [dev, analytics, script]
+
+- name: "💾 Generate backup script"
+  template:
+    src: backup.sh.j2
+    dest: "{{ project_path }}/scripts/backup.sh"
+    mode: '0755'
+  when: enable_backup|bool
+  tags: [dev, backup, script]
+
+- name: "🔄 Generate sync script"
+  template:
+    src: sync.sh.j2
+    dest: "{{ project_path }}/scripts/sync.sh"
+    mode: '0755'
+  when: enable_enterprise|bool
+  tags: [dev, sync, script]
+
+- name: "🏗️ Generate build scripts"
+  template:
+    src: "{{ item }}.j2"
+    dest: "{{ project_path }}/scripts/{{ item }}"
+    mode: '0755'
+  loop:
+    - build.sh
+    - deploy.sh
+    - test.sh
+  when: enable_build|bool
+  tags: [dev, build, scripts]
+
+- name: "🔧 Generate development utilities"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ project_path }}/{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - src: editorconfig.j2
+      dest: .editorconfig
+    - src: gitattributes.j2
+      dest: .gitattributes
+    - src: nvmrc.j2
+      dest: .nvmrc
+  when: enable_quality|bool
+  tags: [dev, config, utilities]
+
+- name: "🐳 Generate Docker configuration"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ project_path }}/{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - src: Dockerfile.j2
+      dest: Dockerfile
+    - src: docker-compose.yml.j2
+      dest: docker-compose.yml
+    - src: dockerignore.j2
+      dest: .dockerignore
+  when: enable_enterprise|bool
+  tags: [dev, docker, config]
+
+- name: "📚 Generate development documentation"
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ project_path }}/docs/{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - src: CONTRIBUTING.md.j2
+      dest: CONTRIBUTING.md
+    - src: DEVELOPMENT.md.j2
+      dest: DEVELOPMENT.md
+    - src: API.md.j2
+      dest: API.md
+  when: enable_enterprise|bool
+  tags: [dev, documentation, docs]
+
+- name: "🔍 Create development tools documentation directory"
+  file:
+    path: "{{ project_path }}/docs"
+    state: directory
+    mode: '0755'
+  when: enable_enterprise|bool
+  tags: [dev, docs, setup]
+
+- name: "🔧 Install development dependencies"
+  npm:
+    path: "{{ project_path }}"
+    name: "{{ item }}"
+    state: present
+    production: false
+  loop: "{{ dev_dependencies + (quality_dependencies if enable_quality else []) }}"
+  when: enable_quality|bool
+  tags: [dev, npm, dependencies]
+  ignore_errors: yes
+
+- name: "🎯 Configure Git hooks"
+  template:
+    src: "{{ item }}.j2"
+    dest: "{{ project_path }}/.git/hooks/{{ item }}"
+    mode: '0755'
+  loop:
+    - pre-commit
+    - pre-push
+    - commit-msg
+  when: enable_quality|bool and git_exists.stat.exists
+  tags: [dev, git, hooks]
+
+- name: "🔧 Configure Husky (Git hooks manager)"
+  shell: |
+    cd {{ project_path }}
+    if command -v npx >/dev/null 2>&1; then
+      npx husky install
+      npx husky add .husky/pre-commit "npm run lint"
+      npx husky add .husky/pre-push "npm run test"
+    fi
+  when: enable_quality|bool
+  tags: [dev, husky, hooks]
+  ignore_errors: yes
+
+- name: "📊 Display development tools summary"
+  debug:
+    msg: |
+      🔧 Development Tools Configured:
+      ================================
+      
+      {% if enable_quality %}
+      Code Quality:
+      ✅ ESLint configuration
+      ✅ Prettier formatting
+      ✅ TypeScript support
+      ✅ VS Code settings & extensions
+      ✅ Git hooks & Husky
+      {% endif %}
+      
+      {% if enable_build %}
+      Build System:
+      ✅ Webpack configuration
+      ✅ Rollup bundler
+      ✅ Build scripts
+      ✅ Asset optimization
+      {% endif %}
+      
+      {% if enable_cicd %}
+      CI/CD Pipeline:
+      ✅ GitHub Actions workflows
+      ✅ Automated testing
+      ✅ Code coverage
+      {% if enable_auto_deploy %}✅ Auto deployment{% endif %}
+      {% endif %}
+      
+      {% if enable_analytics %}
+      Analytics:
+      ✅ Performance monitoring
+      ✅ Analytics scripts
+      {% endif %}
+      
+      {% if enable_backup %}
+      Backup System:
+      ✅ Automated backups
+      ✅ Data retention policies
+      {% endif %}
+      
+      {% if enable_enterprise %}
+      Enterprise Features:
+      ✅ Docker containerization
+      ✅ Complete documentation
+      ✅ Development utilities
+      ✅ Sync scripts
+      {% endif %}
+  tags: [dev, summary]

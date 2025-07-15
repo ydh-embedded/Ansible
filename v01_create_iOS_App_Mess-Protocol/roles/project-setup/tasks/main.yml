@@ -1,0 +1,100 @@
+---
+- name: "📁 Create project directory"
+  file:
+    path: "{{ project_path }}"
+    state: directory
+    mode: '0755'
+  register: project_dir
+
+- name: "📂 Create project directory structure"
+  file:
+    path: "{{ project_path }}/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ directories.source + directories.platforms + directories.resources + directories.config + directories.scripts }}"
+
+- name: "🔄 Check if Git repository exists"
+  stat:
+    path: "{{ project_path }}/.git"
+  register: git_exists
+
+- name: "🆕 Initialize Git repository"
+  shell: |
+    cd {{ project_path }}
+    git init
+    git config user.name "{{ author_name }}"
+    git config user.email "{{ author_email }}"
+  when: not git_exists.stat.exists
+
+- name: "📦 Generate package.json"
+  template:
+    src: package.json.j2
+    dest: "{{ project_path }}/package.json"
+    mode: '0644'
+  notify: 
+    - install npm dependencies
+
+- name: "⚙️ Generate Capacitor configuration"
+  template:
+    src: capacitor.config.ts.j2
+    dest: "{{ project_path }}/capacitor.config.ts"
+    mode: '0644'
+
+- name: "🔧 Generate Ionic configuration"
+  template:
+    src: ionic.config.json.j2
+    dest: "{{ project_path }}/ionic.config.json"
+    mode: '0644'
+
+- name: "📝 Generate .gitignore"
+  template:
+    src: gitignore.j2
+    dest: "{{ project_path }}/.gitignore"
+    mode: '0644'
+
+- name: "📖 Generate README.md"
+  template:
+    src: README.md.j2
+    dest: "{{ project_path }}/README.md"
+    mode: '0644'
+
+- name: "🔧 Generate TypeScript configuration"
+  template:
+    src: tsconfig.json.j2
+    dest: "{{ project_path }}/tsconfig.json"
+    mode: '0644'
+  when: enable_quality|bool
+
+- name: "📄 Generate main HTML file"
+  template:
+    src: index.html.j2
+    dest: "{{ project_path }}/src/index.html"
+    mode: '0644'
+
+- name: "🎨 Generate main stylesheet"
+  template:
+    src: style.css.j2
+    dest: "{{ project_path }}/src/styles/style.css"
+    mode: '0644'
+
+- name: "📜 Generate main JavaScript file"
+  template:
+    src: app.js.j2
+    dest: "{{ project_path }}/src/js/app.js"
+    mode: '0644'
+
+- name: "📊 Display project structure"
+  debug:
+    msg: |
+      📁 Project Structure Created:
+      {{ project_path }}/
+      ├── src/
+      │   ├── index.html
+      │   ├── js/app.js
+      │   ├── styles/style.css
+      │   └── assets/
+      ├── ios/
+      ├── android/
+      ├── package.json
+      ├── capacitor.config.ts
+      └── README.md

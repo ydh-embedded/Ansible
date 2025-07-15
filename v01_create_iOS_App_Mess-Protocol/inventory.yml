@@ -1,0 +1,27 @@
+---
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  
+  vars:
+    project_base_dir: "{{ playbook_dir }}"
+    script_version: "2.0.0"
+    ionic_version: "7.5.0"
+    capacitor_version: "5.5.0"
+    
+    # Development Environment
+    node_version: "18"
+    npm_version: "latest"
+    
+    # Platform Settings
+    target_platforms:
+      - ios
+      - android
+      - web
+    
+    # Build Configuration
+    build_type: "development"
+    minify_assets: false
+    enable_sourcemaps: true
