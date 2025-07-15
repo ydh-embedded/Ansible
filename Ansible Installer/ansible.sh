@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # =============================================================================
-# Ansible Installation Script für Manjaro Linux
+# Ansible Installation Script für Manjaro Linux - ENHANCED VERSION
 # =============================================================================
 # Dieses Script installiert Ansible und alle benötigten Dependencies
+# NEUE FEATURES: Health Dashboard, Remote Management, Playbook Builder, Analytics
 # Autor: Claude (Anthropic)
-# Version: 1.0
+# Version: 2.1 - Enhanced Edition
 # =============================================================================
 
 set -e  # Script bei Fehlern beenden
@@ -15,7 +16,25 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+GRAY='\033[0;90m'
+BRIGHT_GREEN='\033[1;32m'
+BRIGHT_BLUE='\033[1;34m'
+BRIGHT_YELLOW='\033[1;33m'
+BRIGHT_CYAN='\033[1;36m'
+BRIGHT_PURPLE='\033[1;35m'
+BRIGHT_RED='\033[1;31m'
 NC='\033[0m' # No Color
+
+# Background colors
+BG_BLUE='\033[44m'
+BG_GREEN='\033[42m'
+BG_YELLOW='\033[43m'
+BG_RED='\033[41m'
+BG_PURPLE='\033[45m'
+BG_CYAN='\033[46m'
 
 # Logging-Funktionen
 log_info() {
@@ -34,86 +53,2835 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Banner anzeigen
-show_banner() {
-    echo -e "${BLUE}"
-    cat << 'EOF'
-╔═══════════════════════════════════════════════════════════════╗
-║                   ANSIBLE INSTALLER v2.0                    ║
-║                   für Manjaro Linux                          ║
-║                                                               ║
-║  🚀 NEU: Automatische KW-Container + Vollinstallation        ║
-║  🛠️  NEU: Erweiterte Fehlerbehandlung + Health-Checks        ║
-║  📦 NEU: Optimierte pip-Installation ohne Warnungen         ║
-║  🐳 NEU: Podman Rootless Alternative (KEIN sudo!)           ║
-╚═══════════════════════════════════════════════════════════════╝
+# Analytics-Datenbank (CSV-Format)
+ANALYTICS_DIR="$HOME/.ansible-analytics"
+PERFORMANCE_LOG="$ANALYTICS_DIR/performance.csv"
+HEALTH_LOG="$ANALYTICS_DIR/health.csv"
+REMOTE_HOSTS_CONFIG="$ANALYTICS_DIR/remote-hosts.conf"
+
+# Analytics initialisieren
+init_analytics() {
+    mkdir -p "$ANALYTICS_DIR"
+    
+    # Performance-Log Header
+    if [ ! -f "$PERFORMANCE_LOG" ]; then
+        echo "timestamp,playbook,duration,tasks,changed,failed,ok,skipped,host,container" > "$PERFORMANCE_LOG"
+    fi
+    
+    # Health-Log Header
+    if [ ! -f "$HEALTH_LOG" ]; then
+        echo "timestamp,component,status,cpu,memory,disk,details" > "$HEALTH_LOG"
+    fi
+    
+    # Remote-Hosts Konfiguration
+    if [ ! -f "$REMOTE_HOSTS_CONFIG" ]; then
+        cat > "$REMOTE_HOSTS_CONFIG" << 'EOF'
+# Remote Hosts Configuration
+# Format: name|host|port|user|key_path|description
+# localhost|127.0.0.1|22|developer|~/.ssh/id_rsa|Local Development
 EOF
-    echo -e "${NC}"
+    fi
+}
+
+# Performance-Daten loggen
+log_performance() {
+    local playbook="$1"
+    local duration="$2"
+    local stats="$3"
+    local host="${4:-localhost}"
+    local container="${5:-local}"
     
-    # Aktuelle Kalenderwoche anzeigen
-    local current_container=$(get_current_container_name)
-    log_info "Aktuelle Kalenderwoche: $(date +%V) / Jahr: $(date +%Y)"
-    log_info "Standard Container-Name: $current_container"
+    local timestamp=$(date -Iseconds)
+    echo "$timestamp,$playbook,$duration,$stats,$host,$container" >> "$PERFORMANCE_LOG"
+}
+
+# Health-Daten loggen
+log_health() {
+    local component="$1"
+    local status="$2"
+    local cpu="$3"
+    local memory="$4"
+    local disk="$5"
+    local details="$6"
     
-    # Container-Engine-Optionen anzeigen
+    local timestamp=$(date -Iseconds)
+    echo "$timestamp,$component,$status,$cpu,$memory,$disk,$details" >> "$HEALTH_LOG"
+}
+
+# Erweiterte UI-Funktionen
+print_box() {
+    local text="$1"
+    local color="${2:-$BLUE}"
+    local width=70
+    
+    echo -e "${color}╔$(printf '═%.0s' $(seq 1 $((width-2))))╗${NC}"
+    printf "${color}║${NC}%*s${color}║${NC}\n" $((width-2)) "$text"
+    echo -e "${color}╚$(printf '═%.0s' $(seq 1 $((width-2))))╝${NC}"
+}
+
+print_dashboard_widget() {
+    local title="$1"
+    local content="$2"
+    local status="$3"
+    local color="$4"
+    
+    # Status-Icon basierend auf Status
+    local icon=""
+    case $status in
+        "healthy") icon="🟢" ;;
+        "warning") icon="🟡" ;;
+        "critical") icon="🔴" ;;
+        "unknown") icon="⚪" ;;
+        *) icon="🔵" ;;
+    esac
+    
+    echo -e "${color}┌─ $icon $title ────────────────────────────────────────────────────┐${NC}"
+    echo "$content" | while IFS= read -r line; do
+        printf "${color}│${NC} %-67s ${color}│${NC}\n" "$line"
+    done
+    echo -e "${color}└─────────────────────────────────────────────────────────────────────┘${NC}"
+}
+
+# 🩺 HEALTH DASHBOARD
+show_health_dashboard() {
+    clear
+    echo -e "${BRIGHT_BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC}                       ${WHITE}🩺 HEALTH DASHBOARD${NC}                           ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    # System-Übersicht
+    local cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+    local mem_usage=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
+    local disk_usage=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
+    
+    # System-Status bestimmen
+    local system_status="healthy"
+    if (( $(echo "$cpu_usage > 80" | bc -l) )) || (( $(echo "$mem_usage > 90" | bc -l) )) || (( $(echo "$disk_usage > 90" | bc -l) )); then
+        system_status="critical"
+    elif (( $(echo "$cpu_usage > 60" | bc -l) )) || (( $(echo "$mem_usage > 70" | bc -l) )) || (( $(echo "$disk_usage > 80" | bc -l) )); then
+        system_status="warning"
+    fi
+    
+    # System-Widget
+    print_dashboard_widget "SYSTEM RESOURCES" \
+        "CPU: ${cpu_usage}% | Memory: ${mem_usage}% | Disk: ${disk_usage}%
+Load: ${load_avg} | Uptime: $(uptime | awk '{print $3,$4}' | sed 's/,//')
+Kernel: $(uname -r) | Arch: $(uname -m)" \
+        "$system_status" "$CYAN"
+    
     echo
-    log_info "🐳 Verfügbare Container-Engines:"
+    
+    # Container-Status
+    local container_status="healthy"
+    local docker_containers=0
+    local podman_containers=0
+    local running_containers=0
+    
     if command -v docker >/dev/null 2>&1; then
-        if docker ps >/dev/null 2>&1; then
-            echo "• ✅ Docker (verfügbar)"
-        else
-            echo "• ⚠️  Docker (Berechtigungsprobleme möglich)"
-        fi
-    else
-        echo "• ❌ Docker (nicht installiert)"
+        docker_containers=$(docker ps -a 2>/dev/null | wc -l)
+        running_containers=$((running_containers + $(docker ps 2>/dev/null | wc -l) - 1))
     fi
     
     if command -v podman >/dev/null 2>&1; then
-        if podman info >/dev/null 2>&1; then
-            echo "• ✅ Podman (rootless verfügbar)"
-        else
-            echo "• ⚠️  Podman (Setup erforderlich)"
-        fi
-    else
-        echo "• ❌ Podman (nicht installiert)"
+        podman_containers=$(podman ps -a 2>/dev/null | wc -l)
+        running_containers=$((running_containers + $(podman ps 2>/dev/null | wc -l) - 1))
     fi
     
-    # Prüfen ob Container bereits existiert
-    if command -v docker &> /dev/null && docker ps -a --format "{{.Names}}" | grep -q "^${current_container}$"; then
-        local status=$(docker inspect -f '{{.State.Status}}' "$current_container" 2>/dev/null)
-        case $status in
-            "running")
-                log_success "✅ Docker-Container '$current_container' läuft bereits!"
-                
-                # Quick Health-Check wenn Container läuft
-                if docker exec "$current_container" test -f /home/developer/health-check.sh 2>/dev/null; then
-                    if docker exec "$current_container" /home/developer/health-check.sh >/dev/null 2>&1; then
-                        log_success "🩺 Health-Check: OK"
+    if [ $running_containers -eq 0 ] && [ $((docker_containers + podman_containers)) -gt 0 ]; then
+        container_status="warning"
+    fi
+    
+    print_dashboard_widget "CONTAINER STATUS" \
+        "Docker: $docker_containers containers | Podman: $podman_containers containers
+Running: $running_containers | Engines: $(check_container_engines)
+Last Activity: $(get_last_container_activity)" \
+        "$container_status" "$PURPLE"
+    
+    echo
+    
+    # Ansible-Services Status
+    local ansible_status="unknown"
+    local ansible_info="Not installed"
+    
+    if command -v ansible >/dev/null 2>&1; then
+        local ansible_version=$(ansible --version 2>/dev/null | head -1)
+        local python_version=$(python --version 2>/dev/null)
+        local config_status="No config"
+        
+        if [ -f "$HOME/.ansible/ansible.cfg" ]; then
+            config_status="Configured"
+        fi
+        
+        ansible_status="healthy"
+        ansible_info="Version: $ansible_version
+Python: $python_version
+Config: $config_status | Projects: $(count_ansible_projects)"
+        
+        # Ansible-Module prüfen
+        if ! python -c "import ansible, jinja2, paramiko, yaml, cryptography" 2>/dev/null; then
+            ansible_status="warning"
+            ansible_info="$ansible_info
+⚠️  Some Python modules missing"
+        fi
+    else
+        ansible_status="critical"
+    fi
+    
+    print_dashboard_widget "ANSIBLE SERVICES" "$ansible_info" "$ansible_status" "$GREEN"
+    
+    echo
+    
+    # Network & SSH Status
+    local network_status="healthy"
+    local ssh_info="SSH Server: $(systemctl is-active ssh 2>/dev/null || echo 'inactive')
+SSH Agent: $(pgrep ssh-agent >/dev/null && echo 'running' || echo 'stopped')
+Known Hosts: $([ -f ~/.ssh/known_hosts ] && wc -l < ~/.ssh/known_hosts || echo '0') entries
+SSH Keys: $(ls ~/.ssh/*.pub 2>/dev/null | wc -l) public keys"
+    
+    if ! systemctl is-active --quiet ssh 2>/dev/null; then
+        network_status="warning"
+    fi
+    
+    print_dashboard_widget "NETWORK & SSH" "$ssh_info" "$network_status" "$YELLOW"
+    
+    echo
+    
+    # Performance-Trends (letzte 24h)
+    show_performance_trends
+    
+    # Health-Log aktualisieren
+    log_health "system" "$system_status" "$cpu_usage" "$mem_usage" "$disk_usage" "dashboard_check"
+    log_health "containers" "$container_status" "0" "0" "0" "docker:$docker_containers,podman:$podman_containers,running:$running_containers"
+    log_health "ansible" "$ansible_status" "0" "0" "0" "$ansible_version"
+    
+    # Interaktive Optionen
+    echo
+    echo -e "${BRIGHT_CYAN}┌─ 🎮 DASHBOARD AKTIONEN ───────────────────────────────────────────┐${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}1)${NC} 🔄 Dashboard aktualisieren                                  ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}2)${NC} 📊 Detaillierte Systeminfo                                 ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}3)${NC} 🩹 Automatische Problembehebung                           ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}4)${NC} 📈 Performance-Historie anzeigen                           ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}5)${NC} 🔔 Überwachung starten (Live-Updates)                     ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}6)${NC} 🔙 Zurück zum Hauptmenü                                   ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    read -p "$(echo -e "${WHITE}Wähle eine Aktion: ${NC}")" dashboard_action
+    
+    case $dashboard_action in
+        1) show_health_dashboard ;;
+        2) show_detailed_system_info ;;
+        3) auto_fix_problems ;;
+        4) show_performance_history ;;
+        5) start_live_monitoring ;;
+        6) return 0 ;;
+        *) 
+            echo -e "${RED}❌ Ungültige Auswahl${NC}"
+            sleep 2
+            show_health_dashboard
+            ;;
+    esac
+}
+
+# Helper-Funktionen für Health Dashboard
+check_container_engines() {
+    local engines=""
+    if command -v docker >/dev/null 2>&1; then
+        engines="Docker"
+    fi
+    if command -v podman >/dev/null 2>&1; then
+        engines="${engines:+$engines, }Podman"
+    fi
+    echo "${engines:-None}"
+}
+
+get_last_container_activity() {
+    local last_activity="Never"
+    
+    # Docker letzte Aktivität
+    if command -v docker >/dev/null 2>&1; then
+        local docker_activity=$(docker ps -a --format "{{.CreatedAt}}" 2>/dev/null | head -1)
+        if [ -n "$docker_activity" ]; then
+            last_activity="$docker_activity"
+        fi
+    fi
+    
+    # Podman letzte Aktivität
+    if command -v podman >/dev/null 2>&1; then
+        local podman_activity=$(podman ps -a --format "{{.CreatedAt}}" 2>/dev/null | head -1)
+        if [ -n "$podman_activity" ]; then
+            last_activity="$podman_activity"
+        fi
+    fi
+    
+    echo "$last_activity"
+}
+
+count_ansible_projects() {
+    local count=0
+    if [ -d "$HOME/ansible-projekte" ]; then
+        count=$(find "$HOME/ansible-projekte" -maxdepth 1 -type d | wc -l)
+        count=$((count - 1))  # Exclude parent directory
+    fi
+    echo "$count"
+}
+
+show_performance_trends() {
+    echo -e "${BRIGHT_GREEN}┌─ 📈 PERFORMANCE TRENDS (24h) ──────────────────────────────────────┐${NC}"
+    
+    if [ -f "$PERFORMANCE_LOG" ]; then
+        local total_runs=$(tail -n +2 "$PERFORMANCE_LOG" | wc -l)
+        local avg_duration=0
+        local failed_runs=0
+        
+        if [ $total_runs -gt 0 ]; then
+            # Durchschnittliche Ausführungszeit berechnen
+            avg_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3; count++} END {if(count>0) print sum/count; else print 0}')
+            failed_runs=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$6>0' | wc -l)
+        fi
+        
+        printf "${BRIGHT_GREEN}│${NC} Playbook Runs: %-10s | Avg Duration: %-15s      ${BRIGHT_GREEN}│${NC}\n" "$total_runs" "${avg_duration}s"
+        printf "${BRIGHT_GREEN}│${NC} Failed Runs: %-12s | Success Rate: %-15s     ${BRIGHT_GREEN}│${NC}\n" "$failed_runs" "$(( (total_runs - failed_runs) * 100 / (total_runs == 0 ? 1 : total_runs) ))%"
+    else
+        printf "${BRIGHT_GREEN}│${NC} %-67s ${BRIGHT_GREEN}│${NC}\n" "No performance data available yet"
+    fi
+    
+    echo -e "${BRIGHT_GREEN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+}
+
+show_detailed_system_info() {
+    clear
+    echo -e "${BRIGHT_BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC}                    ${WHITE}🔍 DETAILLIERTE SYSTEMINFO${NC}                       ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    echo -e "${CYAN}=== SYSTEM ===${NC}"
+    echo "Hostname: $(hostname)"
+    echo "OS: $(lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"')"
+    echo "Kernel: $(uname -r)"
+    echo "Architecture: $(uname -m)"
+    echo "Uptime: $(uptime -p)"
+    
+    echo
+    echo -e "${CYAN}=== CPU ===${NC}"
+    echo "Model: $(lscpu | grep 'Model name' | awk -F: '{print $2}' | sed 's/^[ \t]*//')"
+    echo "Cores: $(nproc)"
+    echo "Usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
+    echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+    
+    echo
+    echo -e "${CYAN}=== MEMORY ===${NC}"
+    free -h
+    
+    echo
+    echo -e "${CYAN}=== DISK USAGE ===${NC}"
+    df -h / /tmp /home 2>/dev/null | head -4
+    
+    echo
+    echo -e "${CYAN}=== NETWORK ===${NC}"
+    ip addr show | grep -E "inet |^[0-9]+" | head -10
+    
+    echo
+    echo -e "${CYAN}=== RUNNING SERVICES ===${NC}"
+    systemctl --type=service --state=running | head -10
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+}
+
+auto_fix_problems() {
+    clear
+    echo -e "${BRIGHT_YELLOW}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_YELLOW}║${NC}                   ${WHITE}🩹 AUTOMATISCHE PROBLEMBEHEBUNG${NC}                  ${BRIGHT_YELLOW}║${NC}"
+    echo -e "${BRIGHT_YELLOW}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    log_info "Prüfe häufige Probleme und versuche automatische Behebung..."
+    
+    local fixes_applied=0
+    
+    # Docker-Berechtigung prüfen
+    if command -v docker >/dev/null 2>&1 && ! docker ps >/dev/null 2>&1; then
+        echo
+        log_warning "Docker-Berechtigungsproblem erkannt"
+        read -p "Docker-Berechtigung reparieren? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            sudo usermod -aG docker "$USER"
+            log_success "Benutzer zur docker-Gruppe hinzugefügt"
+            log_info "Bitte Terminal neu starten oder 'newgrp docker' ausführen"
+            fixes_applied=$((fixes_applied + 1))
+        fi
+    fi
+    
+    # SSH-Agent prüfen
+    if ! pgrep ssh-agent >/dev/null; then
+        echo
+        log_warning "SSH-Agent läuft nicht"
+        read -p "SSH-Agent starten? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            eval "$(ssh-agent -s)"
+            if [ -f ~/.ssh/id_rsa ]; then
+                ssh-add ~/.ssh/id_rsa
+            fi
+            log_success "SSH-Agent gestartet"
+            fixes_applied=$((fixes_applied + 1))
+        fi
+    fi
+    
+    # Ansible-Konfiguration prüfen
+    if command -v ansible >/dev/null 2>&1 && [ ! -f ~/.ansible/ansible.cfg ]; then
+        echo
+        log_warning "Ansible-Konfiguration fehlt"
+        read -p "Standard-Konfiguration erstellen? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            setup_ansible_config
+            log_success "Ansible-Konfiguration erstellt"
+            fixes_applied=$((fixes_applied + 1))
+        fi
+    fi
+    
+    # Python-Module prüfen
+    if command -v python >/dev/null 2>&1; then
+        missing_modules=()
+        for module in jinja2 paramiko yaml cryptography; do
+            if ! python -c "import $module" 2>/dev/null; then
+                missing_modules+=("$module")
+            fi
+        done
+        
+        if [ ${#missing_modules[@]} -gt 0 ]; then
+            echo
+            log_warning "Fehlende Python-Module: ${missing_modules[*]}"
+            read -p "Module installieren? (Y/n): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                pip install --user "${missing_modules[@]}"
+                log_success "Python-Module installiert"
+                fixes_applied=$((fixes_applied + 1))
+            fi
+        fi
+    fi
+    
+    # Gestoppte Container prüfen
+    local stopped_containers=()
+    if command -v docker >/dev/null 2>&1; then
+        stopped_containers+=($(docker ps -a --filter "status=exited" --filter "name=-docker" --format "{{.Names}}" 2>/dev/null))
+    fi
+    
+    if [ ${#stopped_containers[@]} -gt 0 ]; then
+        echo
+        log_warning "Gestoppte Container gefunden: ${stopped_containers[*]}"
+        read -p "Container starten? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            for container in "${stopped_containers[@]}"; do
+                docker start "$container" && log_success "Container '$container' gestartet"
+            done
+            fixes_applied=$((fixes_applied + 1))
+        fi
+    fi
+    
+    echo
+    if [ $fixes_applied -gt 0 ]; then
+        log_success "$fixes_applied Problem(e) behoben!"
+        echo
+        log_info "Empfehlung: Dashboard aktualisieren für aktuellen Status"
+    else
+        log_info "Keine automatisch behebbaren Probleme gefunden"
+        log_success "System scheint in gutem Zustand zu sein!"
+    fi
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+}
+
+start_live_monitoring() {
+    clear
+    echo -e "${BRIGHT_PURPLE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_PURPLE}║${NC}                     ${WHITE}🔔 LIVE-ÜBERWACHUNG${NC}                            ${BRIGHT_PURPLE}║${NC}"
+    echo -e "${BRIGHT_PURPLE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    log_info "Starte Live-Überwachung (Ctrl+C zum Beenden)..."
+    echo
+    
+    # Live-Updates alle 5 Sekunden
+    while true; do
+        clear
+        echo -e "${PURPLE}🔔 LIVE MONITORING - $(date)${NC}"
+        echo
+        
+        # System-Ressourcen
+        local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+        local mem=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
+        local disk=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+        
+        printf "CPU: %6s%% " "$cpu"
+        show_bar "$cpu" 100 20
+        printf "MEM: %6s%% " "$mem"
+        show_bar "$mem" 100 20
+        printf "DISK: %5s%% " "$disk"
+        show_bar "$disk" 100 20
+        
+        echo
+        echo
+        
+        # Container-Status
+        echo -e "${BLUE}=== CONTAINER STATUS ===${NC}"
+        if command -v docker >/dev/null 2>&1; then
+            local running_docker=$(docker ps --format "{{.Names}}" 2>/dev/null | wc -l)
+            echo "Docker: $running_docker running"
+        fi
+        
+        if command -v podman >/dev/null 2>&1; then
+            local running_podman=$(podman ps --format "{{.Names}}" 2>/dev/null | wc -l)
+            echo "Podman: $running_podman running"
+        fi
+        
+        echo
+        echo -e "${GRAY}Nächstes Update in 5 Sekunden... (Ctrl+C zum Beenden)${NC}"
+        
+        # Log health data
+        log_health "live_monitor" "running" "$cpu" "$mem" "$disk" "live_monitoring"
+        
+        sleep 5
+    done
+}
+
+show_bar() {
+    local value=$1
+    local max=$2
+    local width=$3
+    local filled=$(( value * width / max ))
+    
+    printf "["
+    for ((i=1; i<=width; i++)); do
+        if [ $i -le $filled ]; then
+            printf "█"
+        else
+            printf "░"
+        fi
+    done
+    printf "] "
+}
+
+# 🌐 REMOTE CONTAINER MANAGEMENT
+show_remote_management() {
+    clear
+    echo -e "${BRIGHT_CYAN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_CYAN}║${NC}                   ${WHITE}🌐 REMOTE CONTAINER MANAGEMENT${NC}                  ${BRIGHT_CYAN}║${NC}"
+    echo -e "${BRIGHT_CYAN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    # Remote-Hosts laden
+    load_remote_hosts
+    
+    echo
+    echo -e "${CYAN}┌─ 🖥️  VERFÜGBARE REMOTE HOSTS ─────────────────────────────────────────┐${NC}"
+    
+    if [ ${#REMOTE_HOSTS[@]} -eq 0 ]; then
+        echo -e "${CYAN}│${NC} Keine Remote-Hosts konfiguriert.                               ${CYAN}│${NC}"
+        echo -e "${CYAN}│${NC} Verwende Option 1 um einen Host hinzuzufügen.                 ${CYAN}│${NC}"
+    else
+        echo -e "${CYAN}│${NC} ${WHITE}Name${NC}          ${WHITE}Host${NC}                ${WHITE}Status${NC}            ${WHITE}Containers${NC}   ${CYAN}│${NC}"
+        echo -e "${CYAN}├─────────────────────────────────────────────────────────────────────┤${NC}"
+        
+        for host_info in "${REMOTE_HOSTS[@]}"; do
+            local name=$(echo "$host_info" | cut -d'|' -f1)
+            local host=$(echo "$host_info" | cut -d'|' -f2)
+            local port=$(echo "$host_info" | cut -d'|' -f3)
+            local user=$(echo "$host_info" | cut -d'|' -f4)
+            
+            # Host-Status prüfen
+            local status="🔴 Offline"
+            local containers="N/A"
+            
+            if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -p "$port" "$user@$host" "echo 'connected'" 2>/dev/null | grep -q "connected"; then
+                status="🟢 Online"
+                containers=$(ssh -p "$port" "$user@$host" "docker ps 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+                containers=$((containers - 1))  # Subtract header line
+                containers="${containers} containers"
+            fi
+            
+            printf "${CYAN}│${NC} %-12s %-19s %-16s %-12s ${CYAN}│${NC}\n" "$name" "$host:$port" "$status" "$containers"
+        done
+    fi
+    
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    echo -e "${BRIGHT_YELLOW}┌─ 🎮 REMOTE AKTIONEN ───────────────────────────────────────────────┐${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}1)${NC} 🆕 Remote-Host hinzufügen                                    ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}2)${NC} 🔗 Mit Remote-Host verbinden                                 ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}3)${NC} 📊 Remote-Host Status prüfen                                ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}4)${NC} 🐳 Remote-Container verwalten                               ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}5)${NC} 🚀 Ansible auf Remote-Host installieren                     ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}6)${NC} ⚙️  Remote-Host bearbeiten/löschen                          ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}7)${NC} 📋 Remote-Hosts exportieren/importieren                     ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}│${NC} ${WHITE}8)${NC} 🔙 Zurück zum Hauptmenü                                     ${BRIGHT_YELLOW}│${NC}"
+    echo -e "${BRIGHT_YELLOW}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    read -p "$(echo -e "${WHITE}Wähle eine Aktion: ${NC}")" remote_action
+    
+    case $remote_action in
+        1) add_remote_host ;;
+        2) connect_to_remote_host ;;
+        3) check_remote_host_status ;;
+        4) manage_remote_containers ;;
+        5) install_ansible_remote ;;
+        6) edit_remote_hosts ;;
+        7) export_import_hosts ;;
+        8) return 0 ;;
+        *) 
+            echo -e "${RED}❌ Ungültige Auswahl${NC}"
+            sleep 2
+            show_remote_management
+            ;;
+    esac
+}
+
+declare -a REMOTE_HOSTS
+
+load_remote_hosts() {
+    REMOTE_HOSTS=()
+    if [ -f "$REMOTE_HOSTS_CONFIG" ]; then
+        while IFS= read -r line; do
+            # Skip comments and empty lines
+            if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
+                continue
+            fi
+            REMOTE_HOSTS+=("$line")
+        done < "$REMOTE_HOSTS_CONFIG"
+    fi
+}
+
+add_remote_host() {
+    echo
+    echo -e "${BLUE}=== 🆕 REMOTE HOST HINZUFÜGEN ===${NC}"
+    echo
+    
+    read -p "Host-Name (z.B. 'production'): " host_name
+    read -p "Hostname/IP (z.B. '192.168.1.100'): " hostname
+    read -p "SSH-Port [22]: " ssh_port
+    ssh_port=${ssh_port:-22}
+    read -p "Benutzername [$(whoami)]: " username
+    username=${username:-$(whoami)}
+    read -p "SSH-Key Pfad [~/.ssh/id_rsa]: " key_path
+    key_path=${key_path:-~/.ssh/id_rsa}
+    read -p "Beschreibung: " description
+    
+    # Verbindung testen
+    echo
+    log_info "Teste Verbindung zu $username@$hostname:$ssh_port..."
+    
+    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -p "$ssh_port" "$username@$hostname" "echo 'Verbindung erfolgreich'" 2>/dev/null | grep -q "erfolgreich"; then
+        log_success "Verbindung erfolgreich!"
+        
+        # Host zur Konfiguration hinzufügen
+        echo "$host_name|$hostname|$ssh_port|$username|$key_path|$description" >> "$REMOTE_HOSTS_CONFIG"
+        log_success "Remote-Host '$host_name' hinzugefügt"
+        
+        # Optional: SSH-Key kopieren
+        read -p "SSH-Key zum Remote-Host kopieren? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]] && [ -f "${key_path}.pub" ]; then
+            ssh-copy-id -i "$key_path" -p "$ssh_port" "$username@$hostname"
+            log_success "SSH-Key kopiert"
+        fi
+        
+    else
+        log_error "Verbindung fehlgeschlagen!"
+        echo "Prüfe:"
+        echo "- Hostname/IP korrekt?"
+        echo "- SSH-Service läuft auf Ziel-Host?"
+        echo "- Port $ssh_port erreichbar?"
+        echo "- Benutzer '$username' existiert?"
+    fi
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_remote_management
+}
+
+connect_to_remote_host() {
+    if [ ${#REMOTE_HOSTS[@]} -eq 0 ]; then
+        log_error "Keine Remote-Hosts konfiguriert"
+        sleep 2
+        show_remote_management
+        return
+    fi
+    
+    echo
+    echo -e "${BLUE}=== 🔗 REMOTE-HOST AUSWÄHLEN ===${NC}"
+    echo
+    
+    for i in "${!REMOTE_HOSTS[@]}"; do
+        local host_info="${REMOTE_HOSTS[$i]}"
+        local name=$(echo "$host_info" | cut -d'|' -f1)
+        local host=$(echo "$host_info" | cut -d'|' -f2)
+        local description=$(echo "$host_info" | cut -d'|' -f6)
+        echo "$((i+1))) $name ($host) - $description"
+    done
+    echo
+    
+    read -p "Host auswählen [1-${#REMOTE_HOSTS[@]}]: " host_choice
+    
+    if [[ "$host_choice" =~ ^[0-9]+$ ]] && [ "$host_choice" -ge 1 ] && [ "$host_choice" -le ${#REMOTE_HOSTS[@]} ]; then
+        local selected_host="${REMOTE_HOSTS[$((host_choice-1))]}"
+        local host=$(echo "$selected_host" | cut -d'|' -f2)
+        local port=$(echo "$selected_host" | cut -d'|' -f3)
+        local user=$(echo "$selected_host" | cut -d'|' -f4)
+        
+        log_info "Verbinde mit $user@$host:$port..."
+        ssh -p "$port" "$user@$host"
+    else
+        log_error "Ungültige Auswahl"
+        sleep 2
+    fi
+    
+    show_remote_management
+}
+
+manage_remote_containers() {
+    if [ ${#REMOTE_HOSTS[@]} -eq 0 ]; then
+        log_error "Keine Remote-Hosts konfiguriert"
+        sleep 2
+        show_remote_management
+        return
+    fi
+    
+    echo
+    echo -e "${BLUE}=== 🐳 REMOTE-CONTAINER MANAGEMENT ===${NC}"
+    echo
+    
+    for i in "${!REMOTE_HOSTS[@]}"; do
+        local host_info="${REMOTE_HOSTS[$i]}"
+        local name=$(echo "$host_info" | cut -d'|' -f1)
+        local host=$(echo "$host_info" | cut -d'|' -f2)
+        echo "$((i+1))) $name ($host)"
+    done
+    echo
+    
+    read -p "Host auswählen [1-${#REMOTE_HOSTS[@]}]: " host_choice
+    
+    if [[ "$host_choice" =~ ^[0-9]+$ ]] && [ "$host_choice" -ge 1 ] && [ "$host_choice" -le ${#REMOTE_HOSTS[@]} ]; then
+        local selected_host="${REMOTE_HOSTS[$((host_choice-1))]}"
+        local host=$(echo "$selected_host" | cut -d'|' -f2)
+        local port=$(echo "$selected_host" | cut -d'|' -f3)
+        local user=$(echo "$selected_host" | cut -d'|' -f4)
+        local name=$(echo "$selected_host" | cut -d'|' -f1)
+        
+        echo
+        log_info "Lade Container-Info von $name..."
+        
+        # Remote-Container auflisten
+        local containers=$(ssh -p "$port" "$user@$host" "docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'" 2>/dev/null)
+        
+        if [ $? -eq 0 ] && [ -n "$containers" ]; then
+            echo
+            echo -e "${GREEN}Container auf $name:${NC}"
+            echo "$containers"
+            
+            echo
+            echo "Aktionen:"
+            echo "1) Container starten/stoppen"
+            echo "2) Container-Shell öffnen"
+            echo "3) Container-Logs anzeigen"
+            echo "4) Neuen Container erstellen"
+            
+            read -p "Aktion wählen [1-4]: " container_action
+            
+            case $container_action in
+                1)
+                    read -p "Container-Name: " container_name
+                    read -p "Starten (s) oder Stoppen (t)? [s/t]: " action
+                    
+                    if [ "$action" = "s" ]; then
+                        ssh -p "$port" "$user@$host" "docker start $container_name"
                     else
-                        log_warning "🩺 Health-Check: Probleme detected"
+                        ssh -p "$port" "$user@$host" "docker stop $container_name"
                     fi
-                fi
-                ;;
-            "exited")
-                log_warning "⏸️  Docker-Container '$current_container' ist gestoppt"
-                ;;
-            *)
-                log_info "📦 Docker-Container '$current_container' existiert ($status)"
-                ;;
+                    ;;
+                2)
+                    read -p "Container-Name: " container_name
+                    ssh -t -p "$port" "$user@$host" "docker exec -it $container_name /bin/bash"
+                    ;;
+                3)
+                    read -p "Container-Name: " container_name
+                    ssh -p "$port" "$user@$host" "docker logs $container_name"
+                    ;;
+                4)
+                    echo "Remote-Container-Erstellung wird in einem kommenden Update verfügbar sein"
+                    ;;
+            esac
+        else
+            log_warning "Keine Container gefunden oder Docker nicht verfügbar auf $name"
+        fi
+    else
+        log_error "Ungültige Auswahl"
+    fi
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_remote_management
+}
+
+# 🎮 INTERACTIVE PLAYBOOK BUILDER
+show_playbook_builder() {
+    clear
+    echo -e "${BRIGHT_GREEN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_GREEN}║${NC}                  ${WHITE}🎮 INTERACTIVE PLAYBOOK BUILDER${NC}                  ${BRIGHT_GREEN}║${NC}"
+    echo -e "${BRIGHT_GREEN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    echo -e "${GREEN}Willkommen zum interaktiven Playbook Builder!${NC}"
+    echo "Hier kannst du Schritt für Schritt Ansible-Playbooks erstellen."
+    echo
+    
+    echo -e "${CYAN}┌─ 📝 PLAYBOOK OPTIONEN ────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}1)${NC} 🆕 Neues Playbook erstellen                                     ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}2)${NC} 📖 Vorhandenes Playbook bearbeiten                             ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}3)${NC} 📋 Playbook-Templates anzeigen                                 ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}4)${NC} 🧪 Playbook testen (Dry-Run)                                   ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}5)${NC} ✅ Playbook validieren (Lint)                                  ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}6)${NC} 🚀 Playbook ausführen                                          ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}7)${NC} 📚 Playbook-Galerie (Beispiele)                               ${CYAN}│${NC}"
+    echo -e "${CYAN}│${NC} ${WHITE}8)${NC} 🔙 Zurück zum Hauptmenü                                        ${CYAN}│${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    read -p "$(echo -e "${WHITE}Wähle eine Option: ${NC}")" builder_action
+    
+    case $builder_action in
+        1) create_new_playbook ;;
+        2) edit_existing_playbook ;;
+        3) show_playbook_templates ;;
+        4) test_playbook_dry_run ;;
+        5) validate_playbook ;;
+        6) execute_playbook ;;
+        7) show_playbook_gallery ;;
+        8) return 0 ;;
+        *) 
+            echo -e "${RED}❌ Ungültige Auswahl${NC}"
+            sleep 2
+            show_playbook_builder
+            ;;
+    esac
+}
+
+create_new_playbook() {
+    echo
+    echo -e "${BRIGHT_GREEN}=== 🆕 NEUES PLAYBOOK ERSTELLEN ===${NC}"
+    echo
+    
+    # Grundlegende Informationen sammeln
+    read -p "Playbook-Name (ohne .yml): " playbook_name
+    read -p "Beschreibung: " playbook_description
+    read -p "Ziel-Hosts (z.B. 'all', 'localhost'): " target_hosts
+    target_hosts=${target_hosts:-localhost}
+    
+    # Erweiterte Optionen
+    echo
+    echo "Erweiterte Optionen:"
+    read -p "Benutzer für Remote-Ausführung [ansible]: " remote_user
+    remote_user=${remote_user:-ansible}
+    
+    read -p "Sudo verwenden? (y/N): " -n 1 -r use_sudo
+    echo
+    
+    read -p "Facts sammeln? (Y/n): " -n 1 -r gather_facts
+    echo
+    
+    # Playbook-Struktur erstellen
+    local playbook_dir="$HOME/ansible-projekte/$playbook_name"
+    mkdir -p "$playbook_dir"/{playbooks,inventory,vars,templates,files}
+    
+    # Inventory erstellen
+    cat > "$playbook_dir/inventory/hosts.yml" << EOF
+all:
+  children:
+    target_group:
+      hosts:
+        $target_hosts:
+          ansible_connection: local
+      vars:
+        ansible_user: $remote_user
+EOF
+    
+    # Playbook-Grundgerüst
+    cat > "$playbook_dir/playbooks/${playbook_name}.yml" << EOF
+---
+# $playbook_description
+# Erstellt mit Ansible Interactive Builder
+# Datum: $(date)
+
+- name: $playbook_description
+  hosts: $target_hosts
+  remote_user: $remote_user
+  gather_facts: $([[ $gather_facts =~ ^[Nn]$ ]] && echo "false" || echo "true")
+  become: $([[ $use_sudo =~ ^[Yy]$ ]] && echo "true" || echo "false")
+  
+  vars:
+    # Definiere hier deine Variablen
+    project_name: "$playbook_name"
+    created_by: "$(whoami)"
+    creation_date: "$(date)"
+  
+  tasks:
+    - name: Playbook-Start melden
+      debug:
+        msg: |
+          🚀 Starte Playbook: $playbook_description
+          Host: {{ inventory_hostname }}
+          Benutzer: {{ ansible_user_id }}
+          Datum: {{ ansible_date_time.iso8601 }}
+EOF
+    
+    echo
+    log_success "Playbook-Grundgerüst erstellt: $playbook_dir"
+    
+    # Interaktive Task-Erstellung
+    while true; do
+        echo
+        echo -e "${YELLOW}=== TASKS HINZUFÜGEN ===${NC}"
+        echo "1) Package installieren"
+        echo "2) Datei/Verzeichnis erstellen"
+        echo "3) Service starten/stoppen"
+        echo "4) Kommando ausführen"
+        echo "5) Template kopieren"
+        echo "6) Custom Task (manuell)"
+        echo "7) Playbook beenden"
+        
+        read -p "Task-Typ wählen [1-7]: " task_type
+        
+        case $task_type in
+            1) add_package_task "$playbook_dir/playbooks/${playbook_name}.yml" ;;
+            2) add_file_task "$playbook_dir/playbooks/${playbook_name}.yml" ;;
+            3) add_service_task "$playbook_dir/playbooks/${playbook_name}.yml" ;;
+            4) add_command_task "$playbook_dir/playbooks/${playbook_name}.yml" ;;
+            5) add_template_task "$playbook_dir/playbooks/${playbook_name}.yml" "$playbook_dir" ;;
+            6) add_custom_task "$playbook_dir/playbooks/${playbook_name}.yml" ;;
+            7) break ;;
+            *) echo "Ungültige Auswahl" ;;
         esac
-    elif command -v podman &> /dev/null && podman ps -a --format "{{.Names}}" | grep -q "^${current_container}$"; then
-        local status=$(podman inspect -f '{{.State.Status}}' "$current_container" 2>/dev/null)
-        case $status in
-            "running")
-                log_success "✅ Podman-Container '$current_container' läuft bereits!"
-                ;;
-            "exited")
-                log_warning "⏸️  Podman-Container '$current_container' ist gestoppt"
-                ;;
-            *)
-                log_info "📦 Podman-Container '$current_container' existiert ($status)"
-                ;;
-        esac
+    done
+    
+    # Abschluss
+    cat >> "$playbook_dir/playbooks/${playbook_name}.yml" << EOF
+    
+    - name: Playbook erfolgreich abgeschlossen
+      debug:
+        msg: "✅ Playbook '$playbook_description' erfolgreich ausgeführt!"
+EOF
+    
+    echo
+    log_success "Playbook '$playbook_name' erstellt!"
+    echo
+    echo "Verfügbare Dateien:"
+    echo "• Playbook: $playbook_dir/playbooks/${playbook_name}.yml"
+    echo "• Inventory: $playbook_dir/inventory/hosts.yml"
+    echo "• Verzeichnisse: vars/, templates/, files/"
+    echo
+    echo "Nächste Schritte:"
+    echo "1) Playbook testen: ansible-playbook --check playbooks/${playbook_name}.yml"
+    echo "2) Playbook ausführen: ansible-playbook playbooks/${playbook_name}.yml"
+    
+    read -p "$(echo -e "${CYAN}Playbook jetzt testen? (Y/n): ${NC}")" -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        cd "$playbook_dir"
+        ansible-playbook --check "playbooks/${playbook_name}.yml" -i inventory/hosts.yml
+    fi
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_playbook_builder
+}
+
+add_package_task() {
+    local playbook_file="$1"
+    
+    echo
+    read -p "Package-Name: " package_name
+    read -p "Package-Manager (pacman/apt/yum/dnf) [pacman]: " package_manager
+    package_manager=${package_manager:-pacman}
+    
+    read -p "Aktion (present/absent/latest) [present]: " package_state
+    package_state=${package_state:-present}
+    
+    cat >> "$playbook_file" << EOF
+    
+    - name: Package '$package_name' installieren
+      package:
+        name: $package_name
+        state: $package_state
+      when: ansible_pkg_mgr == "$package_manager"
+      
+    # Fallback für andere Package-Manager
+    - name: Package '$package_name' mit spezifischem Manager
+      $package_manager:
+        name: $package_name
+        state: $package_state
+      when: ansible_pkg_mgr != "$package_manager"
+EOF
+
+    log_success "Package-Task hinzugefügt: $package_name"
+}
+
+add_file_task() {
+    local playbook_file="$1"
+    
+    echo
+    read -p "Datei/Verzeichnis-Pfad: " file_path
+    echo "Typ wählen:"
+    echo "1) Datei erstellen"
+    echo "2) Verzeichnis erstellen"  
+    echo "3) Datei kopieren"
+    echo "4) Datei mit Inhalt erstellen"
+    
+    read -p "Typ [1-4]: " file_type
+    
+    case $file_type in
+        1)
+            cat >> "$playbook_file" << EOF
+    
+    - name: Datei erstellen: $file_path
+      file:
+        path: $file_path
+        state: touch
+        mode: '0644'
+EOF
+            ;;
+        2)
+            read -p "Verzeichnis-Modus [0755]: " dir_mode
+            dir_mode=${dir_mode:-0755}
+            cat >> "$playbook_file" << EOF
+    
+    - name: Verzeichnis erstellen: $file_path
+      file:
+        path: $file_path
+        state: directory
+        mode: '$dir_mode'
+EOF
+            ;;
+        3)
+            read -p "Quell-Datei (relativ zu files/): " src_file
+            cat >> "$playbook_file" << EOF
+    
+    - name: Datei kopieren: $src_file -> $file_path
+      copy:
+        src: $src_file
+        dest: $file_path
+        mode: '0644'
+        backup: true
+EOF
+            ;;
+        4)
+            read -p "Datei-Inhalt: " file_content
+            cat >> "$playbook_file" << EOF
+    
+    - name: Datei mit Inhalt erstellen: $file_path
+      copy:
+        content: |
+          $file_content
+        dest: $file_path
+        mode: '0644'
+EOF
+            ;;
+    esac
+    
+    log_success "File-Task hinzugefügt: $file_path"
+}
+
+add_service_task() {
+    local playbook_file="$1"
+    
+    echo
+    read -p "Service-Name: " service_name
+    echo "Aktion wählen:"
+    echo "1) Service starten und aktivieren"
+    echo "2) Service stoppen und deaktivieren"
+    echo "3) Service neustarten"
+    echo "4) Service-Status prüfen"
+    
+    read -p "Aktion [1-4]: " service_action
+    
+    case $service_action in
+        1)
+            cat >> "$playbook_file" << EOF
+    
+    - name: Service starten und aktivieren: $service_name
+      systemd:
+        name: $service_name
+        state: started
+        enabled: true
+        daemon_reload: true
+EOF
+            ;;
+        2)
+            cat >> "$playbook_file" << EOF
+    
+    - name: Service stoppen und deaktivieren: $service_name
+      systemd:
+        name: $service_name
+        state: stopped
+        enabled: false
+EOF
+            ;;
+        3)
+            cat >> "$playbook_file" << EOF
+    
+    - name: Service neustarten: $service_name
+      systemd:
+        name: $service_name
+        state: restarted
+        daemon_reload: true
+EOF
+            ;;
+        4)
+            cat >> "$playbook_file" << EOF
+    
+    - name: Service-Status prüfen: $service_name
+      service_facts:
+      
+    - name: Service-Info anzeigen: $service_name
+      debug:
+        msg: |
+          Service: $service_name
+          Status: {{ ansible_facts.services['$service_name.service'].state | default('not found') }}
+          Enabled: {{ ansible_facts.services['$service_name.service'].status | default('unknown') }}
+EOF
+            ;;
+    esac
+    
+    log_success "Service-Task hinzugefügt: $service_name"
+}
+
+add_command_task() {
+    local playbook_file="$1"
+    
+    echo
+    read -p "Kommando: " command
+    read -p "Arbeitsverzeichnis [/tmp]: " working_dir
+    working_dir=${working_dir:-/tmp}
+    
+    read -p "Nur ausführen wenn Datei existiert? (Pfad oder leer): " creates_file
+    
+    cat >> "$playbook_file" << EOF
+    
+    - name: Kommando ausführen: $command
+      command: $command
+      args:
+        chdir: $working_dir
+EOF
+
+    if [ -n "$creates_file" ]; then
+        cat >> "$playbook_file" << EOF
+        creates: $creates_file
+EOF
+    fi
+
+    cat >> "$playbook_file" << EOF
+      register: command_result
+      
+    - name: Kommando-Ergebnis anzeigen
+      debug:
+        var: command_result.stdout_lines
+      when: command_result.stdout_lines is defined
+EOF
+    
+    log_success "Command-Task hinzugefügt: $command"
+}
+
+show_playbook_templates() {
+    echo
+    echo -e "${BRIGHT_BLUE}=== 📋 PLAYBOOK TEMPLATES ===${NC}"
+    echo
+    
+    echo -e "${CYAN}Verfügbare Templates:${NC}"
+    echo "1) 🌐 Webserver-Setup (Nginx + SSL)"
+    echo "2) 🐳 Docker-Installation und -Konfiguration"
+    echo "3) 🔐 SSH-Hardening und Sicherheit"
+    echo "4) 📦 Development-Environment Setup"
+    echo "5) 🔄 System-Update und Maintenance"
+    echo "6) 📊 Monitoring-Setup (Prometheus + Grafana)"
+    echo "7) 🗄️  Database-Setup (PostgreSQL/MySQL)"
+    echo "8) 🔙 Zurück"
+    
+    echo
+    read -p "Template auswählen [1-8]: " template_choice
+    
+    case $template_choice in
+        1) create_webserver_template ;;
+        2) create_docker_template ;;
+        3) create_ssh_hardening_template ;;
+        4) create_development_template ;;
+        5) create_maintenance_template ;;
+        6) create_monitoring_template ;;
+        7) create_database_template ;;
+        8) show_playbook_builder ;;
+        *) 
+            echo -e "${RED}❌ Ungültige Auswahl${NC}"
+            sleep 2
+            show_playbook_templates
+            ;;
+    esac
+}
+
+create_webserver_template() {
+    local template_dir="$HOME/ansible-projekte/webserver-nginx"
+    mkdir -p "$template_dir"/{playbooks,inventory,templates,files,vars}
+    
+    # Inventory
+    cat > "$template_dir/inventory/hosts.yml" << 'EOF'
+all:
+  children:
+    webservers:
+      hosts:
+        localhost:
+          ansible_connection: local
+        # Weitere Webserver hier hinzufügen
+      vars:
+        ansible_user: ansible
+        nginx_port: 80
+        ssl_port: 443
+        domain_name: example.com
+EOF
+
+    # Variables
+    cat > "$template_dir/vars/main.yml" << 'EOF'
+---
+# Webserver-Konfiguration
+nginx_version: latest
+ssl_enabled: true
+firewall_enabled: true
+
+# SSL-Konfiguration
+ssl_certificate_path: "/etc/ssl/certs/{{ domain_name }}.crt"
+ssl_private_key_path: "/etc/ssl/private/{{ domain_name }}.key"
+
+# Website-Konfiguration
+website_root: "/var/www/{{ domain_name }}"
+index_files:
+  - index.html
+  - index.php
+
+# Nginx-Module
+nginx_modules:
+  - ssl
+  - gzip
+  - headers
+EOF
+
+    # Nginx-Konfiguration Template
+    cat > "$template_dir/templates/nginx-site.conf.j2" << 'EOF'
+server {
+    listen {{ nginx_port }};
+    server_name {{ domain_name }} www.{{ domain_name }};
+    
+    {% if ssl_enabled %}
+    # Redirect HTTP to HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen {{ ssl_port }} ssl http2;
+    server_name {{ domain_name }} www.{{ domain_name }};
+    
+    # SSL-Konfiguration
+    ssl_certificate {{ ssl_certificate_path }};
+    ssl_certificate_key {{ ssl_private_key_path }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512;
+    ssl_prefer_server_ciphers off;
+    
+    # Security Headers
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    {% endif %}
+    
+    # Document Root
+    root {{ website_root }};
+    index {{ index_files | join(' ') }};
+    
+    # Gzip Compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+    
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    
+    # Logs
+    access_log /var/log/nginx/{{ domain_name }}.access.log;
+    error_log /var/log/nginx/{{ domain_name }}.error.log;
+}
+EOF
+
+    # Standard-Website
+    cat > "$template_dir/files/index.html" << 'EOF'
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Willkommen - Nginx Server</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f4; }
+        .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; }
+        .status { background: #27ae60; color: white; padding: 10px; border-radius: 5px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Nginx Server erfolgreich konfiguriert!</h1>
+        <div class="status">✅ Server läuft</div>
+        <p>Dein Webserver wurde erfolgreich mit Ansible eingerichtet.</p>
+        <ul>
+            <li>Nginx-Version: {{ nginx_version }}</li>
+            <li>SSL aktiviert: {{ ssl_enabled }}</li>
+            <li>Domain: {{ domain_name }}</li>
+        </ul>
+    </div>
+</body>
+</html>
+EOF
+
+    # Hauptplaybook
+    cat > "$template_dir/playbooks/webserver-setup.yml" << 'EOF'
+---
+- name: Nginx Webserver Setup mit SSL
+  hosts: webservers
+  become: true
+  vars_files:
+    - ../vars/main.yml
+    
+  tasks:
+    - name: System-Pakete aktualisieren
+      package:
+        update_cache: true
+        
+    - name: Nginx installieren
+      package:
+        name: nginx
+        state: present
+        
+    - name: UFW Firewall installieren (Ubuntu/Debian)
+      package:
+        name: ufw
+        state: present
+      when: ansible_os_family == "Debian" and firewall_enabled
+      
+    - name: Website-Verzeichnis erstellen
+      file:
+        path: "{{ website_root }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+        
+    - name: Standard-Website kopieren
+      copy:
+        src: ../files/index.html
+        dest: "{{ website_root }}/index.html"
+        owner: www-data
+        group: www-data
+        mode: '0644'
+        
+    - name: Nginx-Site-Konfiguration erstellen
+      template:
+        src: ../templates/nginx-site.conf.j2
+        dest: "/etc/nginx/sites-available/{{ domain_name }}"
+        backup: true
+      notify: reload nginx
+      
+    - name: Default-Site deaktivieren
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: reload nginx
+      
+    - name: Site aktivieren
+      file:
+        src: "/etc/nginx/sites-available/{{ domain_name }}"
+        dest: "/etc/nginx/sites-enabled/{{ domain_name }}"
+        state: link
+      notify: reload nginx
+      
+    - name: SSL-Verzeichnisse erstellen (falls SSL aktiviert)
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/ssl/certs
+        - /etc/ssl/private
+      when: ssl_enabled
+      
+    - name: Self-signed SSL-Zertifikat erstellen (Development)
+      command: >
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048
+        -keyout {{ ssl_private_key_path }}
+        -out {{ ssl_certificate_path }}
+        -subj "/C=DE/ST=State/L=City/O=Organization/CN={{ domain_name }}"
+      args:
+        creates: "{{ ssl_certificate_path }}"
+      when: ssl_enabled
+      
+    - name: Firewall-Regeln konfigurieren
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "{{ nginx_port }}"
+        - "{{ ssl_port if ssl_enabled else [] }}"
+      when: firewall_enabled and ansible_os_family == "Debian"
+      
+    - name: Nginx-Service starten und aktivieren
+      systemd:
+        name: nginx
+        state: started
+        enabled: true
+        daemon_reload: true
+        
+    - name: Nginx-Konfiguration testen
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      
+    - name: Nginx-Test-Ergebnis anzeigen
+      debug:
+        msg: "✅ Nginx-Konfiguration ist gültig"
+      when: nginx_test.rc == 0
+      
+  handlers:
+    - name: reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
+EOF
+
+    log_success "Webserver-Template erstellt: $template_dir"
+    echo
+    echo "Template-Dateien:"
+    echo "• Playbook: playbooks/webserver-setup.yml"
+    echo "• Inventory: inventory/hosts.yml"  
+    echo "• Variables: vars/main.yml"
+    echo "• Nginx-Config: templates/nginx-site.conf.j2"
+    echo "• Website: files/index.html"
+    echo
+    echo "Ausführung:"
+    echo "cd $template_dir"
+    echo "ansible-playbook playbooks/webserver-setup.yml -i inventory/hosts.yml"
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_playbook_templates
+}
+
+# 📈 PERFORMANCE ANALYTICS
+show_performance_analytics() {
+    clear
+    echo -e "${BRIGHT_PURPLE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_PURPLE}║${NC}                    ${WHITE}📈 PERFORMANCE ANALYTICS${NC}                        ${BRIGHT_PURPLE}║${NC}"
+    echo -e "${BRIGHT_PURPLE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    # Analytics initialisieren falls noch nicht geschehen
+    init_analytics
+    
+    echo
+    echo -e "${PURPLE}┌─ 📊 ANALYTICS DASHBOARD ──────────────────────────────────────────────┐${NC}"
+    
+    if [ ! -f "$PERFORMANCE_LOG" ] || [ $(wc -l < "$PERFORMANCE_LOG") -le 1 ]; then
+        echo -e "${PURPLE}│${NC} Noch keine Performance-Daten verfügbar.                           ${PURPLE}│${NC}"
+        echo -e "${PURPLE}│${NC} Führe Playbooks aus um Daten zu sammeln.                          ${PURPLE}│${NC}"
+    else
+        show_performance_overview
+    fi
+    
+    echo -e "${PURPLE}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    echo -e "${BRIGHT_CYAN}┌─ 🎮 ANALYTICS AKTIONEN ───────────────────────────────────────────────┐${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}1)${NC} 📊 Performance-Dashboard anzeigen                             ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}2)${NC} 📈 Ausführungszeiten-Trends                                   ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}3)${NC} 🔍 Detaillierte Playbook-Analyse                             ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}4)${NC} 🎯 Performance-Hotspots identifizieren                       ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}5)${NC} 💡 Optimierungsvorschläge generieren                          ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}6)${NC} 📋 Benchmark-Tests ausführen                                  ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}7)${NC} 📤 Analytics-Report exportieren                               ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}8)${NC} 🧹 Analytics-Daten verwalten                                  ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}│${NC} ${WHITE}9)${NC} 🔙 Zurück zum Hauptmenü                                       ${BRIGHT_CYAN}│${NC}"
+    echo -e "${BRIGHT_CYAN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    read -p "$(echo -e "${WHITE}Wähle eine Aktion: ${NC}")" analytics_action
+    
+    case $analytics_action in
+        1) show_performance_dashboard ;;
+        2) show_execution_trends ;;
+        3) analyze_playbook_details ;;
+        4) identify_performance_hotspots ;;
+        5) generate_optimization_suggestions ;;
+        6) run_benchmark_tests ;;
+        7) export_analytics_report ;;
+        8) manage_analytics_data ;;
+        9) return 0 ;;
+        *) 
+            echo -e "${RED}❌ Ungültige Auswahl${NC}"
+            sleep 2
+            show_performance_analytics
+            ;;
+    esac
+}
+
+show_performance_overview() {
+    if [ ! -f "$PERFORMANCE_LOG" ] || [ $(wc -l < "$PERFORMANCE_LOG") -le 1 ]; then
+        echo -e "${PURPLE}│${NC} Keine Performance-Daten verfügbar                                 ${PURPLE}│${NC}"
+        return
+    fi
+    
+    # Statistiken berechnen
+    local total_runs=$(tail -n +2 "$PERFORMANCE_LOG" | wc -l)
+    local avg_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3; count++} END {printf "%.2f", count > 0 ? sum/count : 0}')
+    local total_tasks=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$4; count++} END {printf "%.0f", count > 0 ? sum/count : 0}')
+    local success_rate=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{total++; if($6==0) success++} END {printf "%.1f", total > 0 ? (success*100)/total : 0}')
+    
+    echo -e "${PURPLE}│${NC} ${WHITE}Total Runs:${NC} %-10s ${WHITE}Avg Duration:${NC} %-10s sec         ${PURPLE}│${NC}" "$total_runs" "$avg_duration"
+    echo -e "${PURPLE}│${NC} ${WHITE}Avg Tasks:${NC} %-11s ${WHITE}Success Rate:${NC} %-10s %%          ${PURPLE}│${NC}" "$total_tasks" "$success_rate"
+    
+    # Letzte 5 Ausführungen
+    echo -e "${PURPLE}├─────────────────────────────────────────────────────────────────────┤${NC}"
+    echo -e "${PURPLE}│${NC} ${WHITE}Letzte Ausführungen:${NC}                                           ${PURPLE}│${NC}"
+    tail -n 5 "$PERFORMANCE_LOG" | while IFS=',' read -r timestamp playbook duration tasks changed failed ok skipped host container; do
+        local status="✅"
+        if [ "$failed" -gt 0 ]; then
+            status="❌"
+        elif [ "$changed" -eq 0 ]; then
+            status="⚡"
+        fi
+        
+        local short_time=$(echo "$timestamp" | cut -d'T' -f2 | cut -d'+' -f1 | cut -d':' -f1,2)
+        local short_playbook=$(basename "$playbook" .yml)
+        printf "${PURPLE}│${NC} %s %-8s %-20s %6ss %2dt ${PURPLE}│${NC}\n" "$status" "$short_time" "$short_playbook" "$duration" "$tasks"
+    done
+}
+
+show_performance_dashboard() {
+    clear
+    echo -e "${BRIGHT_PURPLE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_PURPLE}║${NC}                   ${WHITE}📊 PERFORMANCE DASHBOARD${NC}                        ${BRIGHT_PURPLE}║${NC}"
+    echo -e "${BRIGHT_PURPLE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    if [ ! -f "$PERFORMANCE_LOG" ] || [ $(wc -l < "$PERFORMANCE_LOG") -le 1 ]; then
+        echo
+        echo -e "${YELLOW}┌─ ℹ️  KEINE DATEN VERFÜGBAR ────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│${NC} Noch keine Performance-Daten gesammelt.                           ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC} Führe Playbooks aus um Analytics zu aktivieren.                   ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC}                                                                    ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC} Automatisches Tracking für:                                       ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC} • Ausführungszeiten                                               ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC} • Task-Statistiken                                                ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC} • Erfolgsraten                                                    ${YELLOW}│${NC}"
+        echo -e "${YELLOW}│${NC} • Resource-Verbrauch                                              ${YELLOW}│${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────────┘${NC}"
+        
+        read -p "$(echo -e "${CYAN}Benchmark-Test ausführen um Daten zu generieren? (Y/n): ${NC}")" -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            run_benchmark_tests
+            return
+        fi
+        
+        read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+        show_performance_analytics
+        return
+    fi
+    
+    echo
+    
+    # Gesamt-Statistiken
+    local total_runs=$(tail -n +2 "$PERFORMANCE_LOG" | wc -l)
+    local avg_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3} END {printf "%.2f", NR > 0 ? sum/NR : 0}')
+    local min_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' 'NR==1{min=$3} {if($3<min) min=$3} END {printf "%.2f", min}')
+    local max_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{if($3>max) max=$3} END {printf "%.2f", max}')
+    local total_tasks=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$4} END {printf "%.0f", sum}')
+    local total_changed=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$5} END {printf "%.0f", sum}')
+    local total_failed=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$6} END {printf "%.0f", sum}')
+    local success_rate=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{total++; if($6==0) success++} END {printf "%.1f", total > 0 ? (success*100)/total : 0}')
+    
+    echo -e "${BLUE}┌─ 📈 AUSFÜHRUNGSSTATISTIKEN ───────────────────────────────────────────┐${NC}"
+    printf "${BLUE}│${NC} ${WHITE}Total Runs:${NC} %-10s ${WHITE}Erfolgsrate:${NC} %-15s      ${BLUE}│${NC}\n" "$total_runs" "${success_rate}%"
+    printf "${BLUE}│${NC} ${WHITE}Avg Dauer:${NC} %-11s ${WHITE}Min/Max:${NC} %-10s / %-6s s ${BLUE}│${NC}\n" "${avg_duration}s" "${min_duration}" "${max_duration}"
+    printf "${BLUE}│${NC} ${WHITE}Total Tasks:${NC} %-9s ${WHITE}Davon geändert:${NC} %-12s    ${BLUE}│${NC}\n" "$total_tasks" "$total_changed"
+    printf "${BLUE}│${NC} ${WHITE}Fehlgeschlagen:${NC} %-6s ${WHITE}Erfolgreiche Tasks:${NC} %-9s    ${BLUE}│${NC}\n" "$total_failed" "$((total_tasks - total_failed))"
+    echo -e "${BLUE}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    
+    # Playbook-Rankings
+    echo -e "${GREEN}┌─ 🏆 TOP PLAYBOOKS (nach Häufigkeit) ──────────────────────────────────┐${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $2}' | sort | uniq -c | sort -nr | head -5 | \
+    while read count playbook; do
+        local short_name=$(basename "$playbook" .yml | cut -c1-25)
+        printf "${GREEN}│${NC} %-3s mal: %-35s                    ${GREEN}│${NC}\n" "$count" "$short_name"
+    done
+    echo -e "${GREEN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    
+    # Performance-Trends (ASCII-Chart)
+    echo -e "${PURPLE}┌─ 📊 AUSFÜHRUNGSZEIT-TREND (letzte 10 Runs) ───────────────────────────┐${NC}"
+    local trend_data=$(tail -n 10 "$PERFORMANCE_LOG" | awk -F',' '{print $3}')
+    draw_ascii_chart "$trend_data"
+    echo -e "${PURPLE}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo
+    
+    # Container/Host-Verteilung
+    echo -e "${CYAN}┌─ 🏠 AUSFÜHRUNGS-UMGEBUNGEN ────────────────────────────────────────────┐${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{
+        if ($10 != "local") container_runs++
+        else local_runs++
+        hosts[$9]++
+    } END {
+        printf "│ Container-Runs: %-10s Lokale Runs: %-15s │\n", container_runs+0, local_runs+0
+        for (host in hosts) {
+            printf "│ Host: %-15s Runs: %-25s │\n", host, hosts[host]
+        }
+    }' | head -5
+    echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
+}
+
+draw_ascii_chart() {
+    local data="$1"
+    local max_val=$(echo "$data" | sort -n | tail -1)
+    local max_width=50
+    
+    if [ -z "$max_val" ] || [ "$max_val" = "0" ]; then
+        echo -e "${PURPLE}│${NC} Keine Daten für Chart verfügbar                               ${PURPLE}│${NC}"
+        return
+    fi
+    
+    echo "$data" | nl | while read num value; do
+        local bar_width=$(echo "scale=0; $value * $max_width / $max_val" | bc 2>/dev/null || echo "1")
+        local bar=""
+        
+        for ((i=0; i<bar_width; i++)); do
+            bar="${bar}█"
+        done
+        
+        printf "${PURPLE}│${NC} %2d: %-6.2fs [%-50s] ${PURPLE}│${NC}\n" "$num" "$value" "$bar"
+    done
+}
+
+run_benchmark_tests() {
+    echo
+    echo -e "${BRIGHT_YELLOW}=== 📋 BENCHMARK-TESTS ===${NC}"
+    echo
+    
+    log_info "Führe Benchmark-Tests aus um Performance-Daten zu sammeln..."
+    
+    # Test-Playbooks erstellen falls nicht vorhanden
+    local benchmark_dir="$HOME/ansible-projekte/benchmarks"
+    mkdir -p "$benchmark_dir"/{playbooks,inventory}
+    
+    # Benchmark-Inventory
+    cat > "$benchmark_dir/inventory/hosts.yml" << 'EOF'
+all:
+  children:
+    benchmark:
+      hosts:
+        localhost:
+          ansible_connection: local
+EOF
+
+    # Leichter Test
+    cat > "$benchmark_dir/playbooks/light-benchmark.yml" << 'EOF'
+---
+- name: Light Benchmark Test
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  tasks:
+    - name: Create test directory
+      file:
+        path: /tmp/ansible-benchmark
+        state: directory
+        
+    - name: Create test files
+      copy:
+        content: "Benchmark test {{ item }}"
+        dest: "/tmp/ansible-benchmark/test-{{ item }}.txt"
+      loop: "{{ range(1, 6) | list }}"
+      
+    - name: Check files exist
+      stat:
+        path: "/tmp/ansible-benchmark/test-{{ item }}.txt"
+      loop: "{{ range(1, 6) | list }}"
+      register: file_check
+      
+    - name: Cleanup test files
+      file:
+        path: /tmp/ansible-benchmark
+        state: absent
+EOF
+
+    # Mittlerer Test
+    cat > "$benchmark_dir/playbooks/medium-benchmark.yml" << 'EOF'
+---
+- name: Medium Benchmark Test
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  tasks:
+    - name: Create test structure
+      file:
+        path: "/tmp/ansible-benchmark/{{ item }}"
+        state: directory
+      loop:
+        - dir1
+        - dir2
+        - dir3
+        
+    - name: Install test package
+      package:
+        name: curl
+        state: present
+      become: true
+      
+    - name: Generate test data
+      copy:
+        content: |
+          Benchmark test data
+          Generated at: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          User: {{ ansible_user_id }}
+          {% for i in range(10) %}
+          Line {{ i }}: Test data for performance benchmark
+          {% endfor %}
+        dest: "/tmp/ansible-benchmark/benchmark-data.txt"
+        
+    - name: Process test data
+      shell: "wc -l /tmp/ansible-benchmark/benchmark-data.txt"
+      register: line_count
+      
+    - name: Verify results
+      debug:
+        msg: "Processed {{ line_count.stdout.split()[0] }} lines"
+        
+    - name: Cleanup
+      file:
+        path: /tmp/ansible-benchmark
+        state: absent
+EOF
+
+    # Schwerer Test
+    cat > "$benchmark_dir/playbooks/heavy-benchmark.yml" << 'EOF'
+---
+- name: Heavy Benchmark Test
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  tasks:
+    - name: Create large test structure
+      file:
+        path: "/tmp/ansible-benchmark/{{ item.dir }}/{{ item.subdir }}"
+        state: directory
+      loop:
+        - { dir: "test1", subdir: "sub1" }
+        - { dir: "test1", subdir: "sub2" }
+        - { dir: "test2", subdir: "sub1" }
+        - { dir: "test2", subdir: "sub2" }
+        - { dir: "test3", subdir: "sub1" }
+        
+    - name: Generate large files
+      copy:
+        content: |
+          {% for i in range(100) %}
+          Benchmark line {{ i }}: {{ ansible_date_time.iso8601 }}
+          {% endfor %}
+        dest: "/tmp/ansible-benchmark/test{{ item }}/sub{{ item }}/large-file.txt"
+      loop: "{{ range(1, 4) | list }}"
+      
+    - name: Process multiple files
+      shell: "find /tmp/ansible-benchmark -name '*.txt' -exec wc -l {} +"
+      register: total_lines
+      
+    - name: Install additional packages
+      package:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - tree
+        - htop
+      become: true
+      
+    - name: Run system commands
+      command: "{{ item }}"
+      loop:
+        - "ls -la /tmp/ansible-benchmark"
+        - "du -sh /tmp/ansible-benchmark"
+        - "find /tmp/ansible-benchmark -type f | wc -l"
+      register: command_results
+      
+    - name: Show results
+      debug:
+        msg: "Total lines in files: {{ total_lines.stdout_lines[-1] }}"
+        
+    - name: Cleanup large test
+      file:
+        path: /tmp/ansible-benchmark
+        state: absent
+EOF
+
+    # Benchmark-Tests ausführen
+    local tests=("light-benchmark" "medium-benchmark" "heavy-benchmark")
+    local test_names=("🟢 Leicht" "🟡 Mittel" "🔴 Schwer")
+    
+    cd "$benchmark_dir"
+    
+    for i in "${!tests[@]}"; do
+        local test="${tests[$i]}"
+        local name="${test_names[$i]}"
+        
+        echo
+        log_info "Führe $name Benchmark aus..."
+        
+        local start_time=$(date +%s.%N)
+        
+        # Playbook mit Performance-Tracking ausführen
+        ansible-playbook "playbooks/${test}.yml" -i inventory/hosts.yml -v > "/tmp/benchmark-${test}.log" 2>&1
+        local exit_code=$?
+        
+        local end_time=$(date +%s.%N)
+        local duration=$(echo "$end_time - $start_time" | bc)
+        
+        # Statistiken aus Log extrahieren
+        local task_count=$(grep -c "TASK \[" "/tmp/benchmark-${test}.log" || echo "0")
+        local changed_count=$(grep -c "changed:" "/tmp/benchmark-${test}.log" || echo "0")
+        local failed_count=$(grep -c "failed:" "/tmp/benchmark-${test}.log" || echo "0")
+        local ok_count=$(grep -c "ok:" "/tmp/benchmark-${test}.log" || echo "0")
+        
+        # Performance-Daten loggen
+        log_performance "${test}.yml" "$duration" "$task_count,$changed_count,$failed_count,$ok_count,0" "localhost" "benchmark"
+        
+        if [ $exit_code -eq 0 ]; then
+            log_success "$name Benchmark abgeschlossen (${duration}s)"
+        else
+            log_warning "$name Benchmark hatte Probleme"
+        fi
+        
+        # Progress anzeigen
+        show_progress_bar "$((i+1))" "${#tests[@]}" "Benchmark" "$(( (i+1) * 100 / ${#tests[@]} ))% complete" "$GREEN"
+        echo
+        
+        sleep 1
+    done
+    
+    echo
+    log_success "Alle Benchmark-Tests abgeschlossen!"
+    log_info "Performance-Daten wurden in Analytics gespeichert"
+    
+    # Cleanup
+    rm -f /tmp/benchmark-*.log
+    
+    read -p "$(echo -e "${CYAN}Performance-Dashboard anzeigen? (Y/n): ${NC}")" -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        show_performance_dashboard
+    else
+        show_performance_analytics
+    fi
+}
+
+# Erweiterte Menü-Anzeige mit neuen Features
+show_enhanced_menu() {
+    echo
+    echo -e "${BRIGHT_CYAN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_CYAN}║${NC}                        ${WHITE}📋 INSTALLATIONS-OPTIONEN${NC}                        ${BRIGHT_CYAN}║${NC}"
+    echo -e "${BRIGHT_CYAN}╠══════════════════════════════════════════════════════════════════════╣${NC}"
+    
+    # Lokale Installationen
+    echo -e "${BRIGHT_CYAN}║${NC} ${BRIGHT_YELLOW}📍 LOKALE INSTALLATIONEN${NC}                                          ${BRIGHT_CYAN}║${NC}"
+    print_separator "$BRIGHT_CYAN"
+    print_menu_item "1" "🔧" "Basis-Installation" "Ansible + essentials" "$BRIGHT_CYAN"
+    print_menu_item "2" "⚡" "Vollständige Installation" "+ Docker, VSCode, Tools" "$BRIGHT_CYAN"
+    print_menu_item "3" "📦" "Minimale Installation" "nur Ansible" "$BRIGHT_CYAN"
+    print_menu_item "4" "🎛️ " "Custom Installation" "einzeln auswählen" "$BRIGHT_CYAN"
+    
+    print_separator "$BRIGHT_CYAN"
+    echo -e "${BRIGHT_CYAN}║${NC} ${BRIGHT_GREEN}🐳 CONTAINER-INSTALLATIONEN${NC}                                      ${BRIGHT_CYAN}║${NC}"
+    print_separator "$BRIGHT_CYAN"
+    print_menu_item "5" "🧪" "Testumgebung" "einfache Test-Container" "$BRIGHT_CYAN"
+    print_menu_item "6" "🔒" "Docker-Container" "isolierte Installation" "$BRIGHT_CYAN"
+    
+    print_separator "$BRIGHT_CYAN"
+    echo -e "${BRIGHT_CYAN}║${NC} ${BRIGHT_PURPLE}🚀 AUTO-INSTALLATIONEN (KW-Container)${NC}                           ${BRIGHT_CYAN}║${NC}"
+    print_separator "$BRIGHT_CYAN"
+    print_menu_item "7" "🐋" "Docker AUTO" "KW-Container + Vollinstallation" "$BRIGHT_CYAN"
+    print_menu_item "8" "🐳" "Podman AUTO (ROOTLESS)" "KEIN sudo erforderlich!" "$BRIGHT_CYAN"
+    
+    print_separator "$BRIGHT_CYAN"
+    echo -e "${BRIGHT_CYAN}║${NC} ${BRIGHT_BLUE}🛠️  VERWALTUNG & TOOLS${NC}                                            ${BRIGHT_CYAN}║${NC}"
+    print_separator "$BRIGHT_CYAN"
+    print_menu_item "9" "📊" "Container-Management" "anzeigen/verwalten/löschen" "$BRIGHT_CYAN"
+    print_menu_item "10" "🎨" "Progress-Demo" "Ladebalken-Features testen" "$BRIGHT_CYAN"
+    
+    print_separator "$BRIGHT_CYAN"
+    echo -e "${BRIGHT_CYAN}║${NC} ${BRIGHT_RED}🚀 NEUE ADVANCED FEATURES${NC}                                       ${BRIGHT_CYAN}║${NC}"
+    print_separator "$BRIGHT_CYAN"
+    print_menu_item "11" "🩺" "Health Dashboard" "System & Container Monitoring" "$BRIGHT_CYAN"
+    print_menu_item "12" "🌐" "Remote Management" "Container auf anderen Hosts" "$BRIGHT_CYAN"
+    print_menu_item "13" "🎮" "Playbook Builder" "Interaktive Playbook-Erstellung" "$BRIGHT_CYAN"
+    print_menu_item "14" "📈" "Performance Analytics" "Ausführungszeiten & Trends" "$BRIGHT_CYAN"
+    
+    print_separator "$BRIGHT_CYAN"
+    print_menu_item "15" "❌" "Beenden" "Script verlassen" "$BRIGHT_CYAN"
+    
+    echo -e "${BRIGHT_CYAN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    # Empfehlungs-Card mit neuen Features
+    echo
+    echo -e "${GREEN}┌─ 💡 EMPFEHLUNGEN & NEUE FEATURES ─────────────────────────────────────┐${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Neu hier?${NC}        → Option ${BRIGHT_GREEN}8${NC} (Podman rootless, kein sudo)      ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Docker-Fan?${NC}      → Option ${BRIGHT_BLUE}7${NC} (Docker mit Auto-Fix)              ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Monitoring?${NC}      → Option ${BRIGHT_RED}11${NC} (Health Dashboard) 🩺            ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Remote-Hosts?${NC}    → Option ${BRIGHT_RED}12${NC} (Remote Management) 🌐           ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Playbook-Hilfe?${NC}  → Option ${BRIGHT_RED}13${NC} (Interaktiver Builder) 🎮       ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}Performance?${NC}     → Option ${BRIGHT_RED}14${NC} (Analytics Dashboard) 📈        ${GREEN}│${NC}"
+    echo -e "${GREEN}│${NC} ${WHITE}UI-Demo?${NC}         → Option ${BRIGHT_CYAN}10${NC} (Progress-Bars & Spinner)          ${GREEN}│${NC}"
+    echo -e "${GREEN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+    echo
+}
+
+print_separator() {
+    local color="${1:-$GRAY}"
+    echo -e "${color}├$(printf '─%.0s' $(seq 1 68))┤${NC}"
+}
+
+print_menu_item() {
+    local number="$1"
+    local icon="$2"
+    local title="$3"
+    local description="$4"
+    local color="${5:-$CYAN}"
+    
+    printf "${color}│${NC} ${WHITE}%2s${NC} ${color}│${NC} %s ${WHITE}%-20s${NC} ${GRAY}%s${NC}\n" \
+           "$number" "$icon" "$title" "$description"
+}
+
+# Helper-Funktionen für Performance Analytics
+show_execution_trends() {
+    clear
+    echo -e "${BRIGHT_PURPLE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_PURPLE}║${NC}                   ${WHITE}📈 AUSFÜHRUNGSZEIT-TRENDS${NC}                       ${BRIGHT_PURPLE}║${NC}"
+    echo -e "${BRIGHT_PURPLE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    if [ ! -f "$PERFORMANCE_LOG" ] || [ $(wc -l < "$PERFORMANCE_LOG") -le 1 ]; then
+        echo
+        echo -e "${YELLOW}Keine Trend-Daten verfügbar${NC}"
+        read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+        show_performance_analytics
+        return
+    fi
+    
+    echo
+    echo -e "${PURPLE}=== TREND-ANALYSE (letzte 30 Tage) ===${NC}"
+    
+    # Tägliche Durchschnitte berechnen
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{
+        date = substr($1, 1, 10)
+        duration[date] += $3
+        count[date]++
+    } END {
+        for (d in duration) {
+            printf "%s,%.2f\n", d, duration[d]/count[d]
+        }
+    }' | sort | tail -7 | while IFS=',' read date avg_duration; do
+        local bar_width=$(echo "scale=0; $avg_duration * 30 / 10" | bc 2>/dev/null || echo "1")
+        local bar=""
+        for ((i=0; i<bar_width && i<30; i++)); do
+            bar="${bar}█"
+        done
+        printf "%-12s %6.2fs [%-30s]\n" "$date" "$avg_duration" "$bar"
+    done
+    
+    echo
+    echo -e "${PURPLE}=== PLAYBOOK PERFORMANCE RANKING ===${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{
+        playbook = $2
+        duration[playbook] += $3
+        count[playbook]++
+    } END {
+        for (p in duration) {
+            printf "%.2f,%s,%d\n", duration[p]/count[p], p, count[p]
+        }
+    }' | sort -n | while IFS=',' read avg_duration playbook count; do
+        local short_name=$(basename "$playbook" .yml | cut -c1-25)
+        printf "%-25s: %6.2fs (%-2d runs)\n" "$short_name" "$avg_duration" "$count"
+    done | tail -10
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
+}
+
+identify_performance_hotspots() {
+    clear
+    echo -e "${BRIGHT_RED}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_RED}║${NC}                   ${WHITE}🎯 PERFORMANCE HOTSPOTS${NC}                         ${BRIGHT_RED}║${NC}"
+    echo -e "${BRIGHT_RED}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    if [ ! -f "$PERFORMANCE_LOG" ] || [ $(wc -l < "$PERFORMANCE_LOG") -le 1 ]; then
+        echo
+        echo -e "${YELLOW}Keine Performance-Daten für Analyse verfügbar${NC}"
+        read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+        show_performance_analytics
+        return
+    fi
+    
+    echo
+    echo -e "${RED}🔍 IDENTIFIZIERTE HOTSPOTS:${NC}"
+    echo
+    
+    # Langsame Playbooks (>30s)
+    echo -e "${YELLOW}⚠️  LANGSAME PLAYBOOKS (>30s):${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$3 > 30 {
+        printf "   📋 %s: %.2fs (%d tasks)\n", $2, $3, $4
+    }' | sort -k3 -nr | head -5
+    
+    echo
+    
+    # Fehlerhafte Ausführungen
+    echo -e "${RED}❌ FEHLGESCHLAGENE AUSFÜHRUNGEN:${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$6 > 0 {
+        printf "   📋 %s: %d failed tasks (%.2fs)\n", $2, $6, $3
+    }' | head -5
+    
+    echo
+    
+    # Performance-Regression (Playbooks die langsamer geworden sind)
+    echo -e "${ORANGE}📉 PERFORMANCE-REGRESSIONEN:${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{
+        playbook = $2
+        if (count[playbook] == 0) {
+            first_duration[playbook] = $3
+        }
+        last_duration[playbook] = $3
+        count[playbook]++
+    } END {
+        for (p in count) {
+            if (count[p] > 2 && last_duration[p] > first_duration[p] * 1.5) {
+                printf "   📋 %s: %.2fs → %.2fs (+%.1f%%)\n", 
+                       p, first_duration[p], last_duration[p], 
+                       ((last_duration[p] - first_duration[p]) / first_duration[p] * 100)
+            }
+        }
+    }' | head -5
+    
+    echo
+    
+    # Resource-intensive Hosts
+    echo -e "${PURPLE}🖥️  RESOURCE-INTENSIVE HOSTS:${NC}"
+    tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{
+        host = $9
+        duration[host] += $3
+        tasks[host] += $4
+        count[host]++
+    } END {
+        for (h in duration) {
+            if (count[h] > 1) {
+                printf "   🖥️  %s: %.2fs avg (%.0f tasks avg, %d runs)\n", 
+                       h, duration[h]/count[h], tasks[h]/count[h], count[h]
+            }
+        }
+    }' | sort -k3 -nr | head -3
+    
+    echo
+    echo -e "${GREEN}💡 OPTIMIERUNGSEMPFEHLUNGEN:${NC}"
+    
+    # Automatische Empfehlungen generieren
+    local slow_playbooks=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$3 > 30' | wc -l)
+    local total_failed=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$6} END {print sum+0}')
+    local avg_tasks=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$4; count++} END {printf "%.0f", count > 0 ? sum/count : 0}')
+    
+    if [ "$slow_playbooks" -gt 0 ]; then
+        echo "   🚀 Verwende Parallel-Ausführung mit 'forks' Parameter"
+        echo "   ⚡ Implementiere Fact-Caching für wiederholte Ausführungen"
+        echo "   📦 Aktiviere Pipelining in ansible.cfg"
+    fi
+    
+    if [ "$total_failed" -gt 0 ]; then
+        echo "   🛡️  Implementiere bessere Fehlerbehandlung mit 'rescue' Blöcken"
+        echo "   🔍 Verwende 'check_mode' vor produktiven Ausführungen"
+    fi
+    
+    if [ "$avg_tasks" -gt 20 ]; then
+        echo "   📋 Teile große Playbooks in kleinere, fokussierte Rollen auf"
+        echo "   🎯 Verwende Tags für selektive Ausführung"
+    fi
+    
+    echo "   📈 Aktiviere Performance-Callbacks für detailliertere Metriken"
+    echo "   🔧 Optimiere Inventory-Struktur und -Gruppierung"
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
+}
+
+generate_optimization_suggestions() {
+    clear
+    echo -e "${BRIGHT_GREEN}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_GREEN}║${NC}                  ${WHITE}💡 OPTIMIERUNGSVORSCHLÄGE${NC}                        ${BRIGHT_GREEN}║${NC}"
+    echo -e "${BRIGHT_GREEN}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    echo -e "${GREEN}Analysiere deine Ansible-Umgebung und generiere Optimierungsvorschläge...${NC}"
+    echo
+    
+    # Ansible-Konfiguration analysieren
+    echo -e "${BLUE}🔧 KONFIGURATIONSOPTIMIERUNGEN:${NC}"
+    echo
+    
+    if [ -f "$HOME/.ansible/ansible.cfg" ]; then
+        local config_file="$HOME/.ansible/ansible.cfg"
+        
+        # Prüfe wichtige Performance-Settings
+        if ! grep -q "forks" "$config_file"; then
+            echo "   ⚡ Füge 'forks = 10' hinzu für parallele Ausführung"
+        fi
+        
+        if ! grep -q "pipelining" "$config_file"; then
+            echo "   🚀 Aktiviere 'pipelining = True' für SSH-Optimierung"
+        fi
+        
+        if ! grep -q "fact_caching" "$config_file"; then
+            echo "   📦 Aktiviere Fact-Caching: 'fact_caching = memory'"
+        fi
+        
+        if ! grep -q "host_key_checking" "$config_file"; then
+            echo "   🔐 Setze 'host_key_checking = False' für Development"
+        fi
+        
+        echo "   ✅ Ansible-Konfiguration gefunden und analysiert"
+    else
+        echo "   ❌ Keine ansible.cfg gefunden - erstelle optimierte Konfiguration"
+        
+        read -p "   Optimierte ansible.cfg erstellen? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            create_optimized_ansible_config
+        fi
+    fi
+    
+    echo
+    echo -e "${PURPLE}📁 PROJEKT-STRUKTUR OPTIMIERUNGEN:${NC}"
+    echo
+    
+    # Projekt-Struktur analysieren
+    if [ -d "$HOME/ansible-projekte" ]; then
+        local project_count=$(find "$HOME/ansible-projekte" -maxdepth 1 -type d | wc -l)
+        project_count=$((project_count - 1))
+        
+        echo "   📊 $project_count Projekte gefunden"
+        
+        # Prüfe auf Best Practices
+        local projects_with_roles=0
+        local projects_with_vars=0
+        local projects_with_inventory=0
+        
+        for project_dir in "$HOME/ansible-projekte"/*; do
+            if [ -d "$project_dir" ]; then
+                [ -d "$project_dir/roles" ] && projects_with_roles=$((projects_with_roles + 1))
+                [ -d "$project_dir/vars" ] && projects_with_vars=$((projects_with_vars + 1))
+                [ -d "$project_dir/inventory" ] && projects_with_inventory=$((projects_with_inventory + 1))
+            fi
+        done
+        
+        if [ $projects_with_roles -lt $project_count ]; then
+            echo "   🎭 Nutze Roles für wiederverwendbare Funktionalität"
+        fi
+        
+        if [ $projects_with_vars -lt $project_count ]; then
+            echo "   📝 Lagere Variablen in separate Dateien aus"
+        fi
+        
+        if [ $projects_with_inventory -lt $project_count ]; then
+            echo "   📋 Verwende strukturierte Inventory-Dateien"
+        fi
+        
+        echo "   💡 Implementiere Git-Versionierung für Playbooks"
+        echo "   🔍 Nutze ansible-lint für Code-Qualität"
+    else
+        echo "   📁 Erstelle strukturierte Projekt-Verzeichnisse"
+    fi
+    
+    echo
+    echo -e "${CYAN}🐳 CONTAINER-OPTIMIERUNGEN:${NC}"
+    echo
+    
+    # Container-Performance analysieren
+    if [ -f "$PERFORMANCE_LOG" ]; then
+        local container_runs=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$10 != "local"' | wc -l)
+        local local_runs=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$10 == "local"' | wc -l)
+        
+        if [ $container_runs -gt 0 ]; then
+            echo "   📊 $container_runs Container-Ausführungen vs $local_runs lokale"
+            
+            local avg_container_time=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$10 != "local" {sum+=$3; count++} END {printf "%.2f", count > 0 ? sum/count : 0}')
+            local avg_local_time=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$10 == "local" {sum+=$3; count++} END {printf "%.2f", count > 0 ? sum/count : 0}')
+            
+            echo "   ⏱️  Durchschnitt Container: ${avg_container_time}s, Lokal: ${avg_local_time}s"
+            
+            if (( $(echo "$avg_container_time > $avg_local_time * 1.5" | bc -l) )); then
+                echo "   🚀 Container-Performance optimieren:"
+                echo "      • Verwende Volume-Mounts für wiederverwendbare Daten"
+                echo "      • Nutze Container-spezifische SSH-Konfiguration"
+                echo "      • Implementiere Container-Warmup für bessere Startzeiten"
+            fi
+        fi
+    fi
+    
+    # Hardware-spezifische Empfehlungen
+    echo
+    echo -e "${YELLOW}🖥️  HARDWARE-OPTIMIERUNGEN:${NC}"
+    echo
+    
+    local cpu_cores=$(nproc)
+    local total_memory=$(free -g | awk '/^Mem:/{print $2}')
+    
+    echo "   💻 System: $cpu_cores CPU-Kerne, ${total_memory}GB RAM"
+    
+    if [ $cpu_cores -gt 4 ]; then
+        echo "   ⚡ Nutze mehr parallele Forks: forks = $((cpu_cores * 2))"
+    fi
+    
+    if [ $total_memory -gt 8 ]; then
+        echo "   🧠 Aktiviere erweiterte Fact-Caching-Strategien"
+        echo "   🐳 Führe mehrere Container parallel aus"
+    fi
+    
+    # SSH-Optimierungen
+    echo
+    echo -e "${RED}🔐 SSH-OPTIMIERUNGEN:${NC}"
+    echo
+    
+    if [ -f "$HOME/.ssh/config" ]; then
+        echo "   ✅ SSH-Config gefunden"
+        
+        if ! grep -q "ControlMaster" "$HOME/.ssh/config"; then
+            echo "   🚀 SSH-Multiplexing aktivieren für bessere Performance"
+        fi
+    else
+        echo "   📝 Erstelle SSH-Config für optimierte Verbindungen"
+    fi
+    
+    echo "   🔑 Nutze SSH-Agent für automatische Schlüsselverwaltung"
+    echo "   ⚡ Implementiere SSH-Bastion-Hosts für Remote-Zugriff"
+    
+    # Monitoring-Empfehlungen
+    echo
+    echo -e "${BRIGHT_PURPLE}📊 MONITORING & LOGGING:${NC}"
+    echo
+    
+    echo "   📈 Aktiviere Callback-Plugins für erweiterte Metriken"
+    echo "   📝 Implementiere strukturiertes Logging"
+    echo "   🔔 Setze Alerting für fehlgeschlagene Playbooks auf"
+    echo "   📊 Integriere mit Prometheus/Grafana für Dashboards"
+    
+    # Automatische Konfiguration anbieten
+    echo
+    echo -e "${BRIGHT_GREEN}🛠️  AUTOMATISCHE OPTIMIERUNG:${NC}"
+    echo
+    
+    read -p "Soll ich automatisch eine optimierte Ansible-Konfiguration erstellen? (Y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        create_optimized_ansible_config
+        create_performance_monitoring_setup
+    fi
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
+}
+
+create_optimized_ansible_config() {
+    local config_file="$HOME/.ansible/ansible.cfg"
+    local backup_file="${config_file}.backup.$(date +%s)"
+    
+    # Backup der bestehenden Konfiguration
+    if [ -f "$config_file" ]; then
+        cp "$config_file" "$backup_file"
+        log_info "Backup erstellt: $backup_file"
+    fi
+    
+    mkdir -p "$HOME/.ansible"
+    
+    cat > "$config_file" << 'EOF'
+[defaults]
+# === PERFORMANCE OPTIMIZATIONS ===
+# Parallele Ausführung
+forks = 20
+# SSH-Optimierung
+pipelining = True
+# Fact-Caching
+gathering = smart
+fact_caching = memory
+fact_caching_timeout = 3600
+# Host-Key-Checking (für Development)
+host_key_checking = False
+
+# === BASIC SETTINGS ===
+inventory = ./inventory/hosts.yml
+remote_user = ansible
+private_key_file = ~/.ssh/id_rsa
+stdout_callback = yaml
+bin_ansible_callbacks = True
+display_skipped_hosts = False
+display_ok_hosts = True
+
+# === RETRY & TIMEOUT ===
+retry_files_enabled = False
+timeout = 30
+command_timeout = 60
+
+# === LOGGING ===
+log_path = ~/.ansible/ansible.log
+force_color = True
+
+[privilege_escalation]
+become = True
+become_method = sudo
+become_user = root
+become_ask_pass = False
+
+[ssh_connection]
+# SSH-Performance-Optimierungen
+ssh_args = -o ControlMaster=auto -o ControlPersist=300s -o PreferredAuthentications=publickey
+control_path_dir = ~/.ansible/cp
+pipelining = True
+# SSH-Multiplexing
+control_path = ~/.ansible/cp/%%h-%%p-%%r
+
+[inventory]
+# Inventory-Performance
+cache = True
+cache_plugin = memory
+cache_timeout = 3600
+
+[callback_profile_tasks]
+# Task-Performance-Tracking
+task_output_limit = 100
+EOF
+    
+    # Control-Path-Verzeichnis erstellen
+    mkdir -p "$HOME/.ansible/cp"
+    
+    log_success "Optimierte Ansible-Konfiguration erstellt: $config_file"
+    log_info "Performance-Verbesserungen:"
+    echo "  • 20 parallele Forks für schnellere Ausführung"
+    echo "  • SSH-Pipelining und -Multiplexing aktiviert"
+    echo "  • Smart-Gathering mit Memory-Caching"
+    echo "  • Erweiterte Logging- und Retry-Konfiguration"
+}
+
+create_performance_monitoring_setup() {
+    local monitoring_dir="$HOME/ansible-projekte/monitoring"
+    mkdir -p "$monitoring_dir"/{playbooks,callbacks,scripts}
+    
+    # Performance-Callback-Plugin
+    cat > "$monitoring_dir/callbacks/performance_monitor.py" << 'EOF'
+"""
+Ansible Performance Monitoring Callback Plugin
+"""
+import time
+import json
+import os
+from ansible.plugins.callback import CallbackBase
+
+class CallbackModule(CallbackBase):
+    CALLBACK_VERSION = 2.0
+    CALLBACK_TYPE = 'notification'
+    CALLBACK_NAME = 'performance_monitor'
+    
+    def __init__(self):
+        super(CallbackModule, self).__init__()
+        self.task_start_time = {}
+        self.play_start_time = None
+        self.stats = {}
+        
+    def v2_playbook_on_play_start(self, play):
+        self.play_start_time = time.time()
+        
+    def v2_runner_on_ok(self, result):
+        self._record_task_result(result, 'ok')
+        
+    def v2_runner_on_failed(self, result, ignore_errors=False):
+        self._record_task_result(result, 'failed')
+        
+    def v2_runner_on_skipped(self, result):
+        self._record_task_result(result, 'skipped')
+        
+    def _record_task_result(self, result, status):
+        task_name = result.task_name
+        host = result._host.name
+        
+        if task_name not in self.stats:
+            self.stats[task_name] = {}
+        if host not in self.stats[task_name]:
+            self.stats[task_name][host] = {'ok': 0, 'failed': 0, 'skipped': 0, 'duration': 0}
+            
+        self.stats[task_name][host][status] += 1
+        
+    def v2_playbook_on_stats(self, stats):
+        # Performance-Statistiken ausgeben
+        total_time = time.time() - self.play_start_time if self.play_start_time else 0
+        
+        performance_data = {
+            'total_duration': total_time,
+            'task_stats': self.stats,
+            'host_stats': dict(stats.processed)
+        }
+        
+        # In Analytics-Log schreiben
+        analytics_file = os.path.expanduser('~/.ansible-analytics/callback-performance.json')
+        os.makedirs(os.path.dirname(analytics_file), exist_ok=True)
+        
+        with open(analytics_file, 'a') as f:
+            f.write(json.dumps(performance_data) + '\n')
+EOF
+    
+    # Monitoring-Playbook
+    cat > "$monitoring_dir/playbooks/system-monitoring.yml" << 'EOF'
+---
+- name: System Performance Monitoring
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  tasks:
+    - name: Collect system metrics
+      shell: |
+        echo "CPU: $(top -bn1 | grep Cpu | awk '{print $2}' | cut -d'%' -f1)"
+        echo "Memory: $(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')"
+        echo "Disk: $(df / | tail -1 | awk '{print $5}' | sed 's/%//')"
+        echo "Load: $(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')"
+      register: system_metrics
+      
+    - name: Display metrics
+      debug:
+        var: system_metrics.stdout_lines
+        
+    - name: Log performance data
+      copy:
+        content: |
+          {{ ansible_date_time.iso8601 }},system_monitor,{{ system_metrics.stdout_lines | join(',') }}
+        dest: ~/.ansible-analytics/system-monitoring.csv
+        mode: '0644'
+      delegate_to: localhost
+EOF
+    
+    # Monitoring-Script
+    cat > "$monitoring_dir/scripts/ansible-perf-monitor.sh" << 'EOF'
+#!/bin/bash
+
+# Ansible Performance Monitor
+# Führe regelmäßige Performance-Checks aus
+
+ANALYTICS_DIR="$HOME/.ansible-analytics"
+LOG_FILE="$ANALYTICS_DIR/monitoring.log"
+
+log_metric() {
+    local metric="$1"
+    local value="$2"
+    echo "$(date -Iseconds),$metric,$value" >> "$LOG_FILE"
+}
+
+# System-Metriken sammeln
+collect_system_metrics() {
+    local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+    local mem=$(free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}')
+    local disk=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+    
+    log_metric "cpu_usage" "$cpu"
+    log_metric "memory_usage" "$mem"
+    log_metric "disk_usage" "$disk"
+}
+
+# Container-Status prüfen
+check_container_status() {
+    if command -v docker >/dev/null 2>&1; then
+        local running=$(docker ps --format "{{.Names}}" | wc -l)
+        local total=$(docker ps -a --format "{{.Names}}" | wc -l)
+        log_metric "docker_running" "$running"
+        log_metric "docker_total" "$total"
+    fi
+    
+    if command -v podman >/dev/null 2>&1; then
+        local running=$(podman ps --format "{{.Names}}" | wc -l)
+        local total=$(podman ps -a --format "{{.Names}}" | wc -l)
+        log_metric "podman_running" "$running"
+        log_metric "podman_total" "$total"
+    fi
+}
+
+# Ansible-Performance prüfen
+check_ansible_performance() {
+    if [ -f "$ANALYTICS_DIR/performance.csv" ]; then
+        local last_run=$(tail -1 "$ANALYTICS_DIR/performance.csv" | cut -d',' -f1)
+        local last_duration=$(tail -1 "$ANALYTICS_DIR/performance.csv" | cut -d',' -f3)
+        log_metric "last_playbook_duration" "$last_duration"
+    fi
+}
+
+# Hauptfunktion
+main() {
+    mkdir -p "$ANALYTICS_DIR"
+    
+    echo "🔍 Sammle Performance-Metriken..."
+    collect_system_metrics
+    check_container_status
+    check_ansible_performance
+    
+    echo "📊 Metriken gespeichert in: $LOG_FILE"
+}
+
+# Cron-Job-Setup
+setup_cron() {
+    echo "⏰ Performance-Monitoring als Cron-Job einrichten?"
+    read -p "Alle 5 Minuten Metriken sammeln? (y/N): " -n 1 -r
+    echo
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Cron-Job hinzufügen
+        (crontab -l 2>/dev/null; echo "*/5 * * * * $0 >/dev/null 2>&1") | crontab -
+        echo "✅ Cron-Job eingerichtet"
+    fi
+}
+
+case "${1:-}" in
+    --cron) main ;;
+    --setup-cron) setup_cron ;;
+    *) 
+        main
+        setup_cron
+        ;;
+esac
+EOF
+    
+    chmod +x "$monitoring_dir/scripts/ansible-perf-monitor.sh"
+    
+    log_success "Performance-Monitoring Setup erstellt: $monitoring_dir"
+    echo "  • Callback-Plugin: callbacks/performance_monitor.py"
+    echo "  • Monitoring-Playbook: playbooks/system-monitoring.yml"
+    echo "  • Monitoring-Script: scripts/ansible-perf-monitor.sh"
+    echo
+    echo "Verwendung:"
+    echo "  export ANSIBLE_CALLBACK_PLUGINS=$monitoring_dir/callbacks"
+    echo "  ansible-playbook -e callback_whitelist=performance_monitor playbook.yml"
+}
+
+export_analytics_report() {
+    clear
+    echo -e "${BRIGHT_BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC}                   ${WHITE}📤 ANALYTICS REPORT EXPORT${NC}                      ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    local report_dir="$HOME/ansible-analytics-reports"
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local report_file="$report_dir/ansible-report-$timestamp.md"
+    
+    mkdir -p "$report_dir"
+    
+    echo
+    log_info "Generiere umfassenden Analytics-Report..."
+    
+    # Markdown-Report erstellen
+    cat > "$report_file" << EOF
+# Ansible Performance Analytics Report
+**Generiert am:** $(date)  
+**Hostname:** $(hostname)  
+**Benutzer:** $(whoami)  
+
+## 📊 Executive Summary
+
+EOF
+    
+    # Zusammenfassung generieren
+    if [ -f "$PERFORMANCE_LOG" ] && [ $(wc -l < "$PERFORMANCE_LOG") -gt 1 ]; then
+        local total_runs=$(tail -n +2 "$PERFORMANCE_LOG" | wc -l)
+        local avg_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3} END {printf "%.2f", NR > 0 ? sum/NR : 0}')
+        local success_rate=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{total++; if($6==0) success++} END {printf "%.1f", total > 0 ? (success*100)/total : 0}')
+        local total_tasks=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$4} END {printf "%.0f", sum}')
+        
+        cat >> "$report_file" << EOF
+- **Total Playbook Runs:** $total_runs
+- **Average Duration:** ${avg_duration}s
+- **Success Rate:** ${success_rate}%
+- **Total Tasks Executed:** $total_tasks
+
+## 📈 Performance Metrics
+
+### Execution Time Trends
+\`\`\`
+$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $1 "," $3}' | tail -10)
+\`\`\`
+
+### Top Playbooks by Frequency
+\`\`\`
+$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $2}' | sort | uniq -c | sort -nr | head -5)
+\`\`\`
+
+### Performance Hotspots (>30s)
+\`\`\`
+$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '$3 > 30 {printf "%s: %.2fs\n", $2, $3}' | head -5)
+\`\`\`
+
+EOF
+    else
+        cat >> "$report_file" << EOF
+- **Status:** Keine Performance-Daten verfügbar
+- **Empfehlung:** Führe Playbooks aus um Metriken zu sammeln
+
+EOF
+    fi
+    
+    # System-Informationen hinzufügen
+    cat >> "$report_file" << EOF
+## 🖥️ System Information
+
+- **OS:** $(lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '"')
+- **Kernel:** $(uname -r)
+- **Architecture:** $(uname -m)
+- **CPU Cores:** $(nproc)
+- **Memory:** $(free -h | awk '/^Mem:/{print $2}')
+- **Ansible Version:** $(ansible --version 2>/dev/null | head -1 || echo "Not installed")
+
+## 🐳 Container Status
+
+EOF
+    
+    # Container-Status
+    if command -v docker >/dev/null 2>&1; then
+        local docker_total=$(docker ps -a --format "{{.Names}}" 2>/dev/null | wc -l)
+        local docker_running=$(docker ps --format "{{.Names}}" 2>/dev/null | wc -l)
+        cat >> "$report_file" << EOF
+- **Docker Containers:** $docker_running running, $docker_total total
+EOF
+    fi
+    
+    if command -v podman >/dev/null 2>&1; then
+        local podman_total=$(podman ps -a --format "{{.Names}}" 2>/dev/null | wc -l)
+        local podman_running=$(podman ps --format "{{.Names}}" 2>/dev/null | wc -l)
+        cat >> "$report_file" << EOF
+- **Podman Containers:** $podman_running running, $podman_total total
+EOF
+    fi
+    
+    # Health-Daten hinzufügen
+    cat >> "$report_file" << EOF
+
+## 🩺 Health Status
+
+EOF
+    
+    if [ -f "$HEALTH_LOG" ] && [ $(wc -l < "$HEALTH_LOG") -gt 1 ]; then
+        cat >> "$report_file" << EOF
+### Recent Health Checks
+\`\`\`
+$(tail -5 "$HEALTH_LOG")
+\`\`\`
+EOF
+    else
+        cat >> "$report_file" << EOF
+- **Status:** Keine Health-Daten verfügbar
+EOF
+    fi
+    
+    # Optimierungsempfehlungen
+    cat >> "$report_file" << EOF
+
+## 💡 Optimization Recommendations
+
+### Performance Optimizations
+1. **Parallel Execution:** Increase forks parameter for faster execution
+2. **SSH Optimization:** Enable pipelining and connection multiplexing
+3. **Fact Caching:** Implement memory-based fact caching
+4. **Task Optimization:** Use tags for selective execution
+
+### Infrastructure Recommendations
+1. **Container Optimization:** Use persistent volumes for data
+2. **Network Optimization:** Implement SSH bastion hosts for remote access
+3. **Monitoring:** Set up continuous performance monitoring
+4. **Automation:** Implement CI/CD pipelines for playbook testing
+
+### Security Considerations
+1. **SSH Keys:** Use key-based authentication
+2. **Vault:** Encrypt sensitive data with Ansible Vault
+3. **Access Control:** Implement role-based access control
+4. **Auditing:** Enable comprehensive logging and auditing
+
+## 📊 Raw Data
+
+### Performance Log Sample
+\`\`\`csv
+$(head -1 "$PERFORMANCE_LOG" 2>/dev/null || echo "timestamp,playbook,duration,tasks,changed,failed,ok,skipped,host,container")
+$(tail -5 "$PERFORMANCE_LOG" 2>/dev/null)
+\`\`\`
+
+---
+*Report generated by Ansible Enhanced Installation Script v2.1*  
+*For more information visit: https://docs.ansible.com/*
+EOF
+    
+    # JSON-Export für maschinelle Verarbeitung
+    local json_file="$report_dir/ansible-data-$timestamp.json"
+    
+    cat > "$json_file" << EOF
+{
+  "report_metadata": {
+    "generated_at": "$(date -Iseconds)",
+    "hostname": "$(hostname)",
+    "user": "$(whoami)",
+    "ansible_version": "$(ansible --version 2>/dev/null | head -1 || echo 'not installed')"
+  },
+  "system_info": {
+    "os": "$(lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '"')",
+    "kernel": "$(uname -r)",
+    "architecture": "$(uname -m)",
+    "cpu_cores": $(nproc),
+    "memory_gb": "$(free -g | awk '/^Mem:/{print $2}')"
+  },
+EOF
+    
+    # Performance-Daten als JSON
+    if [ -f "$PERFORMANCE_LOG" ] && [ $(wc -l < "$PERFORMANCE_LOG") -gt 1 ]; then
+        echo '  "performance_data": [' >> "$json_file"
+        tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{
+            printf "    {\"timestamp\":\"%s\",\"playbook\":\"%s\",\"duration\":%s,\"tasks\":%s,\"changed\":%s,\"failed\":%s,\"ok\":%s,\"skipped\":%s,\"host\":\"%s\",\"container\":\"%s\"}", 
+                   $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+            if(NR < total_lines) printf ","
+            printf "\n"
+        }' total_lines=$(tail -n +2 "$PERFORMANCE_LOG" | wc -l) >> "$json_file"
+        echo '  ]' >> "$json_file"
+    else
+        echo '  "performance_data": []' >> "$json_file"
+    fi
+    
+    echo '}' >> "$json_file"
+    
+    # CSV-Export für Spreadsheet-Anwendungen
+    if [ -f "$PERFORMANCE_LOG" ]; then
+        cp "$PERFORMANCE_LOG" "$report_dir/performance-data-$timestamp.csv"
+    fi
+    
+    if [ -f "$HEALTH_LOG" ]; then
+        cp "$HEALTH_LOG" "$report_dir/health-data-$timestamp.csv"
+    fi
+    
+    log_success "Analytics-Report exportiert!"
+    echo
+    echo "📁 Report-Dateien:"
+    echo "  • Markdown-Report: $report_file"
+    echo "  • JSON-Daten: $json_file"
+    echo "  • CSV-Performance: $report_dir/performance-data-$timestamp.csv"
+    echo "  • CSV-Health: $report_dir/health-data-$timestamp.csv"
+    echo
+    echo "📤 Export-Optionen:"
+    echo "1) Report in Browser öffnen"
+    echo "2) Report per E-Mail versenden"
+    echo "3) Report in Cloud hochladen"
+    echo "4) Zurück zum Analytics-Menü"
+    
+    read -p "Option wählen [1-4]: " export_choice
+    
+    case $export_choice in
+        1) 
+            if command -v firefox >/dev/null 2>&1; then
+                firefox "$report_file" &
+            elif command -v chromium >/dev/null 2>&1; then
+                chromium "$report_file" &
+            else
+                log_info "Bitte öffne manuell: $report_file"
+            fi
+            ;;
+        2)
+            read -p "E-Mail-Adresse: " email
+            if command -v mail >/dev/null 2>&1 && [ -n "$email" ]; then
+                mail -s "Ansible Analytics Report $(date +%Y-%m-%d)" "$email" < "$report_file"
+                log_success "Report per E-Mail versendet"
+            else
+                log_warning "Mail-Befehl nicht verfügbar oder keine E-Mail angegeben"
+            fi
+            ;;
+        3)
+            log_info "Cloud-Upload wird in einem kommenden Update verfügbar sein"
+            ;;
+        4) ;;
+    esac
+    
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
+}
+
+# Alle bestehenden Funktionen beibehalten und erweiterte main() Funktion
+
+# Banner anzeigen
+show_banner() {
+    clear
+    echo
+    echo -e "${BRIGHT_BLUE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC}                        ${WHITE}🚀 ANSIBLE INSTALLER v2.1 🚀${NC}                       ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC}                         ${CYAN}ENHANCED EDITION${NC}                            ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}╠══════════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC} ${BRIGHT_GREEN}🆕 NEU:${NC} Health Dashboard + Performance Analytics              ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC} ${BRIGHT_GREEN}🌐 NEU:${NC} Remote Container Management                            ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC} ${BRIGHT_GREEN}🎮 NEU:${NC} Interactive Playbook Builder                          ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}║${NC} ${BRIGHT_GREEN}📊 NEU:${NC} Erweiterte Monitoring & Analytics                     ${BRIGHT_BLUE}║${NC}"
+    echo -e "${BRIGHT_BLUE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    
+    # Status-Cards mit erweiterten Informationen
+    local current_container=$(get_current_container_name)
+    
+    echo -e "${CYAN}┌─ 📅 STATUS & ANALYTICS ────────────┬─ 🐳 CONTAINER ENGINES ─────────┐${NC}"
+    printf "${CYAN}│${NC} %-34s ${CYAN}│${NC} %-30s ${CYAN}│${NC}\n" \
+           "📆 KW: $(date +%V) / Jahr: $(date +%Y)" \
+           "$(check_docker_status)"
+    printf "${CYAN}│${NC} %-34s ${CYAN}│${NC} %-30s ${CYAN}│${NC}\n" \
+           "🏷️  Container: $current_container" \
+           "$(check_podman_status)"
+    printf "${CYAN}│${NC} %-34s ${CYAN}│${NC} %-30s ${CYAN}│${NC}\n" \
+           "📊 Analytics: $(check_analytics_status)" \
+           "🩺 Health: $(check_health_status)"
+    echo -e "${CYAN}└────────────────────────────────────┴─────────────────────────────────┘${NC}"
+    
+    # Container-Status-Card
+    show_container_status_card "$current_container"
+}
+
+check_analytics_status() {
+    if [ -f "$PERFORMANCE_LOG" ] && [ $(wc -l < "$PERFORMANCE_LOG") -gt 1 ]; then
+        local runs=$(tail -n +2 "$PERFORMANCE_LOG" | wc -l)
+        echo "${GREEN}✅ $runs Runs${NC}"
+    else
+        echo "${YELLOW}⚠️  Keine Daten${NC}"
+    fi
+}
+
+check_health_status() {
+    if [ -f "$HEALTH_LOG" ] && [ $(wc -l < "$HEALTH_LOG") -gt 1 ]; then
+        echo "${GREEN}✅ Aktiv${NC}"
+    else
+        echo "${GRAY}❓ Inaktiv${NC}"
     fi
 }
 
@@ -138,2991 +2906,266 @@ check_manjaro() {
     fi
 }
 
-# Menü anzeigen
-show_menu() {
+# Performance-Historie anzeigen
+show_performance_history() {
+    clear
+    echo -e "${BRIGHT_PURPLE}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_PURPLE}║${NC}                    ${WHITE}📈 PERFORMANCE HISTORIE${NC}                         ${BRIGHT_PURPLE}║${NC}"
+    echo -e "${BRIGHT_PURPLE}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    if [ ! -f "$PERFORMANCE_LOG" ] || [ $(wc -l < "$PERFORMANCE_LOG") -le 1 ]; then
+        echo
+        echo -e "${YELLOW}Keine Performance-Historie verfügbar${NC}"
+        read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+        show_performance_analytics
+        return
+    fi
+    
     echo
-    log_info "Was möchtest du installieren?"
-    echo "1) Basis-Installation (Ansible + essentials)"
-    echo "2) Vollständige Installation (+ Docker, VSCode, Tools)"
-    echo "3) Minimale Installation (nur Ansible)"
-    echo "4) Custom Installation (einzeln auswählen)"
-    echo "5) Nur Testumgebung einrichten"
-    echo "6) In Docker-Container ausführen (isoliert)"
-    echo "7) 🚀 AUTO: Neuer KW-Container + Vollinstallation (Docker)"
-    echo "8) 🐳 AUTO: Neuer KW-Container + Vollinstallation (Podman - ROOTLESS)"
-    echo "9) Container-Management (anzeigen/löschen)"
-    echo "10) Beenden"
+    echo -e "${PURPLE}=== VOLLSTÄNDIGE AUSFÜHRUNGSHISTORIE ===${NC}"
     echo
-}
-
-# Paket-Installation mit Fehlerbehandlung
-install_package() {
-    local package=$1
-    log_info "Installiere $package..."
     
-    if sudo pacman -S --noconfirm "$package"; then
-        log_success "$package erfolgreich installiert"
-        return 0
-    else
-        log_error "Fehler beim Installieren von $package"
-        return 1
-    fi
-}
-
-# AUR Helper installieren
-install_aur_helper() {
-    if command -v yay &> /dev/null; then
-        log_success "yay ist bereits installiert"
-        return 0
-    fi
+    # Header
+    printf "%-19s %-25s %8s %5s %3s %3s %3s %-12s\n" \
+           "ZEITSTEMPEL" "PLAYBOOK" "DAUER" "TASKS" "CHG" "ERR" "OK" "HOST"
+    echo "$(printf '─%.0s' {1..80})"
     
-    log_info "Installiere yay (AUR Helper)..."
-    
-    # Git klonen und kompilieren
-    cd /tmp
-    git clone https://aur.archlinux.org/yay.git
-    cd yay
-    makepkg -si --noconfirm
-    cd ~
-    
-    if command -v yay &> /dev/null; then
-        log_success "yay erfolgreich installiert"
-        return 0
-    else
-        log_error "yay Installation fehlgeschlagen"
-        return 1
-    fi
-}
-
-# System aktualisieren
-update_system() {
-    log_info "Aktualisiere System..."
-    sudo pacman -Syu --noconfirm
-    log_success "System aktualisiert"
-}
-
-# Basis-Pakete installieren
-install_base_packages() {
-    log_info "Installiere Basis-Pakete..."
-    
-    local packages=(
-        "ansible"
-        "python"
-        "python-pip"
-        "openssh"
-        "git"
-        "curl"
-        "vim"
-        "tree"
-    )
-    
-    for package in "${packages[@]}"; do
-        install_package "$package"
-    done
-    
-    # Python-Module
-    log_info "Installiere Python-Module..."
-    pip install --user jinja2 paramiko PyYAML cryptography ansible-lint
-    
-    log_success "Basis-Installation abgeschlossen"
-}
-
-# Docker installieren
-install_docker() {
-    log_info "Installiere Docker..."
-    
-    install_package "docker"
-    install_package "docker-compose"
-    
-    # Docker Service aktivieren
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    
-    # User zu docker-Gruppe hinzufügen
-    sudo usermod -aG docker "$USER"
-    
-    log_success "Docker installiert"
-    log_warning "Bitte melde dich ab und wieder an, um Docker ohne sudo zu nutzen"
-}
-
-# VSCode installieren
-install_vscode() {
-    log_info "Installiere Visual Studio Code..."
-    
-    if ! install_aur_helper; then
-        log_error "Kann VSCode nicht installieren (yay fehlt)"
-        return 1
-    fi
-    
-    yay -S --noconfirm visual-studio-code-bin
-    log_success "VSCode installiert"
-}
-
-# Zusätzliche Tools installieren
-install_additional_tools() {
-    log_info "Installiere zusätzliche Tools..."
-    
-    local packages=(
-        "yamllint"
-        "nano"
-        "htop"
-        "wget"
-        "unzip"
-    )
-    
-    for package in "${packages[@]}"; do
-        install_package "$package"
-    done
-    
-    # Python-Tools
-    pip install --user molecule[docker] awxkit
-    
-    log_success "Zusätzliche Tools installiert"
-}
-
-# SSH-Schlüssel erstellen
-setup_ssh_keys() {
-    if [ -f ~/.ssh/id_rsa ]; then
-        log_info "SSH-Schlüssel existiert bereits"
-        return 0
-    fi
-    
-    log_info "Erstelle SSH-Schlüssel..."
-    read -p "E-Mail für SSH-Schlüssel eingeben: " email
-    
-    if [ -z "$email" ]; then
-        email="ansible@$(hostname)"
-    fi
-    
-    ssh-keygen -t rsa -b 4096 -C "$email" -f ~/.ssh/id_rsa -N ""
-    
-    # SSH-Agent starten
-    eval "$(ssh-agent -s)"
-    ssh-add ~/.ssh/id_rsa
-    
-    log_success "SSH-Schlüssel erstellt"
-    echo "Öffentlicher Schlüssel:"
-    cat ~/.ssh/id_rsa.pub
-}
-
-# Ansible-Konfiguration erstellen
-setup_ansible_config() {
-    log_info "Erstelle Ansible-Konfiguration..."
-    
-    mkdir -p ~/.ansible
-    
-    cat > ~/.ansible/ansible.cfg << 'EOF'
-[defaults]
-host_key_checking = False
-inventory = ./inventory/hosts.yml
-remote_user = ansible
-private_key_file = ~/.ssh/id_rsa
-gathering = smart
-fact_caching = memory
-stdout_callback = yaml
-bin_ansible_callbacks = True
-
-[privilege_escalation]
-become = True
-become_method = sudo
-become_user = root
-become_ask_pass = False
-
-[ssh_connection]
-ssh_args = -o ControlMaster=auto -o ControlPersist=60s
-pipelining = True
-EOF
-    
-    log_success "Ansible-Konfiguration erstellt"
-}
-
-# Projekt-Template erstellen
-create_project_template() {
-    local project_dir="$HOME/ansible-projekte"
-    
-    log_info "Erstelle Projekt-Template..."
-    
-    mkdir -p "$project_dir/webserver-beispiel"/{inventory,playbooks,templates,files,group_vars,host_vars}
-    
-    # Beispiel-Inventory
-    cat > "$project_dir/webserver-beispiel/inventory/hosts.yml" << 'EOF'
-all:
-  children:
-    webservers:
-      hosts:
-        localhost:
-          ansible_connection: local
-      vars:
-        ansible_user: ansible
-        nginx_port: 80
-EOF
-    
-    # Beispiel-Playbook
-    cat > "$project_dir/webserver-beispiel/playbooks/test.yml" << 'EOF'
----
-- name: Ansible Test
-  hosts: localhost
-  connection: local
-  tasks:
-    - name: Test-Datei erstellen
-      file:
-        path: /tmp/ansible-test.txt
-        state: touch
-    
-    - name: Erfolg melden
-      debug:
-        msg: "Ansible funktioniert perfekt!"
-EOF
-    
-    # README erstellen
-    cat > "$project_dir/webserver-beispiel/README.md" << 'EOF'
-# Ansible Beispiel-Projekt
-
-## Test ausführen
-```bash
-cd ansible-projekte/webserver-beispiel
-ansible-playbook playbooks/test.yml
-```
-
-## Webserver-Projekt kopieren
-Das vollständige Webserver-Beispiel findest du in der Anleitung.
-EOF
-    
-    log_success "Projekt-Template erstellt in $project_dir"
-}
-
-# Docker Test-Container starten
-setup_docker_test() {
-    if ! command -v docker &> /dev/null; then
-        log_error "Docker ist nicht installiert"
-        return 1
-    fi
-    
-    log_info "Starte Docker Test-Container..."
-    
-    # Ubuntu Test-Container
-    docker run -d --name ansible-test \
-        --privileged \
-        -p 2222:22 \
-        -p 8080:80 \
-        ubuntu:22.04 \
-        /bin/bash -c "
-            apt update && 
-            apt install -y openssh-server sudo python3 &&
-            useradd -m -s /bin/bash ansible &&
-            echo 'ansible:ansible' | chpasswd &&
-            echo 'ansible ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers &&
-            mkdir -p /home/ansible/.ssh &&
-            service ssh start &&
-            tail -f /dev/null
-        "
-    
-    sleep 5
-    
-    # SSH-Schlüssel zum Container kopieren
-    if [ -f ~/.ssh/id_rsa.pub ]; then
-        docker exec ansible-test bash -c "
-            mkdir -p /home/ansible/.ssh &&
-            chown ansible:ansible /home/ansible/.ssh
-        "
-        docker cp ~/.ssh/id_rsa.pub ansible-test:/home/ansible/.ssh/authorized_keys
-        docker exec ansible-test chown ansible:ansible /home/ansible/.ssh/authorized_keys
-    fi
-    
-    log_success "Docker Test-Container gestartet"
-    log_info "Test mit: ansible ansible-test -i 'localhost:2222,' -u ansible -m ping"
-}
-
-# Docker prüfen und installieren falls nötig
-ensure_docker() {
-    log_info "🐳 Prüfe Docker-Setup..."
-    
-    # Docker installiert?
-    if ! command -v docker &> /dev/null; then
-        log_info "Docker ist nicht installiert. Installiere Docker..."
-        install_package "docker"
-        sudo systemctl enable --now docker
+    # Alle Einträge anzeigen
+    tail -n +2 "$PERFORMANCE_LOG" | while IFS=',' read -r timestamp playbook duration tasks changed failed ok skipped host container; do
+        local status_icon="✅"
+        if [ "$failed" -gt 0 ]; then
+            status_icon="❌"
+        elif [ "$changed" -eq 0 ]; then
+            status_icon="⚡"
+        fi
         
-        # Warten bis Docker läuft
-        sleep 5
+        local short_time=$(echo "$timestamp" | cut -d'T' -f2 | cut -d'+' -f1)
+        local short_playbook=$(basename "$playbook" .yml | cut -c1-23)
+        local short_host=$(echo "$host" | cut -c1-10)
         
-        # User zur Gruppe hinzufügen
-        sudo usermod -aG docker "$USER"
-        log_success "Docker installiert und User zur docker-Gruppe hinzugefügt"
-    fi
-    
-    # Docker-Service läuft?
-    if ! systemctl is-active --quiet docker; then
-        log_info "Starte Docker-Service..."
-        sudo systemctl start docker
-        sleep 3
-    fi
-    
-    # Prüfe ob User in docker-Gruppe ist
-    if ! groups | grep -q docker; then
-        log_info "Füge User zur docker-Gruppe hinzu..."
-        sudo usermod -aG docker "$USER"
-        log_success "User zur docker-Gruppe hinzugefügt"
-    fi
-    
-    # Docker-Berechtigung testen
-    log_info "Teste Docker-Berechtigung..."
-    if docker ps >/dev/null 2>&1; then
-        log_success "✅ Docker funktioniert ohne sudo!"
-        return 0
-    fi
-    
-    log_warning "❌ Docker-Gruppe ist noch nicht aktiv in dieser Session"
+        printf "%s %-25s %7.2fs %5s %3s %3s %3s %-12s %s\n" \
+               "$short_time" "$short_playbook" "$duration" "$tasks" \
+               "$changed" "$failed" "$ok" "$short_host" "$status_icon"
+    done | tail -20
     
     echo
-    log_info "🔧 Lösungen (OHNE sudo):"
-    echo "1) 🔄 Session-Gruppe aktualisieren (empfohlen)"
-    echo "2) 🆕 Neues Terminal öffnen"  
-    echo "3) 🔐 Temporäre Socket-Berechtigung"
-    echo "4) 🐳 Docker Rootless Mode verwenden"
-    echo "5) ⚠️  Als Fallback: sudo verwenden"
-    echo
+    echo -e "${PURPLE}=== STATISTIKEN ===${NC}"
     
-    read -p "Lösung wählen [1-5]: " -n 1 -r
-    echo
+    # Detaillierte Statistiken
+    local total_duration=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3} END {printf "%.2f", sum}')
+    local fastest=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' 'NR==1{min=$3} {if($3<min) min=$3} END {printf "%.2f", min}')
+    local slowest=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{if($3>max) max=$3} END {printf "%.2f", max}')
+    local median=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $3}' | sort -n | awk '{a[NR]=$1} END {print (NR%2==1) ? a[(NR+1)/2] : (a[NR/2]+a[NR/2+1])/2}')
     
-    case $REPLY in
-        1|"")
-            log_info "Aktiviere docker-Gruppe in aktueller Session..."
-            log_info "Script wird mit korrekten Berechtigungen neu gestartet..."
-            exec newgrp docker -c "$0 $*"
+    echo "Gesamt-Laufzeit: ${total_duration}s"
+    echo "Schnellste Ausführung: ${fastest}s"
+    echo "Langsamste Ausführung: ${slowest}s"
+    echo "Median-Laufzeit: ${median}s"
+    
+    echo
+    echo "Aktionen:"
+    echo "1) Detailanalyse für spezifisches Playbook"
+    echo "2) Performance-Trends exportieren"
+    echo "3) Zurück zum Analytics-Menü"
+    
+    read -p "Aktion wählen [1-3]: " history_action
+    
+    case $history_action in
+        1)
+            echo
+            echo "Verfügbare Playbooks:"
+            tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $2}' | sort -u | nl
+            read -p "Playbook-Nummer auswählen: " pb_num
+            
+            local selected_playbook=$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $2}' | sort -u | sed -n "${pb_num}p")
+            if [ -n "$selected_playbook" ]; then
+                echo
+                echo "=== ANALYSE: $(basename "$selected_playbook" .yml) ==="
+                tail -n +2 "$PERFORMANCE_LOG" | awk -F',' -v pb="$selected_playbook" '$2==pb {
+                    sum+=$3; count++; if($3>max) max=$3; if(min=="" || $3<min) min=$3
+                } END {
+                    printf "Ausführungen: %d\n", count
+                    printf "Durchschnitt: %.2fs\n", sum/count
+                    printf "Min/Max: %.2fs / %.2fs\n", min, max
+                }'
+            fi
             ;;
         2)
-            log_info "Bitte öffne ein neues Terminal und führe das Script dort aus:"
-            echo "  ./ansible.sh"
-            echo
-            echo "In neuem Terminal sollte docker ohne sudo funktionieren."
-            exit 0
+            local export_file="$HOME/ansible-performance-trends-$(date +%Y%m%d_%H%M%S).csv"
+            cp "$PERFORMANCE_LOG" "$export_file"
+            log_success "Performance-Daten exportiert: $export_file"
             ;;
-        3)
-            log_info "Setze temporäre Socket-Berechtigung (session-lokal)..."
-            
-            # Aktuelle Socket-Berechtigung sichern
-            local original_perms=$(stat -c "%a" /var/run/docker.sock 2>/dev/null)
-            
-            # Temporär Socket für User zugänglich machen
-            if sudo chmod g+rw /var/run/docker.sock 2>/dev/null; then
-                log_info "Socket-Berechtigung temporär angepasst"
-                
-                # Testen
-                if docker ps >/dev/null 2>&1; then
-                    log_success "✅ Docker funktioniert jetzt ohne sudo!"
-                    
-                    # Warnung über temporäre Lösung
-                    log_warning "⚠️  Diese Lösung ist nur für diese Session gültig"
-                    echo "Für dauerhafte Lösung: Terminal neu starten oder neu anmelden"
-                    
-                    return 0
-                else
-                    log_error "Socket-Fix funktionierte nicht"
-                fi
-                
-                # Berechtigung zurücksetzen falls möglich
-                if [ -n "$original_perms" ]; then
-                    sudo chmod "$original_perms" /var/run/docker.sock 2>/dev/null || true
-                fi
-            else
-                log_error "Konnte Socket-Berechtigung nicht ändern"
-            fi
-            ;;
-        4)
-            log_info "🐳 Docker Rootless Mode Setup..."
-            
-            # Prüfen ob rootless möglich ist
-            if command -v dockerd-rootless-setuptool.sh >/dev/null 2>&1; then
-                echo "Docker Rootless ist verfügbar!"
-                echo
-                echo "Setup-Schritte für Rootless Docker:"
-                echo "1. dockerd-rootless-setuptool.sh install"
-                echo "2. export PATH=/home/$USER/bin:\$PATH"
-                echo "3. export DOCKER_HOST=unix:///run/user/\$(id -u)/docker.sock"
-                echo "4. systemctl --user enable docker"
-                echo "5. systemctl --user start docker"
-                echo
-                
-                read -p "Rootless Docker jetzt einrichten? (y/N): " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
-                    log_info "Richte Docker Rootless ein..."
-                    
-                    # Rootless-Setup ausführen
-                    if dockerd-rootless-setuptool.sh install; then
-                        # Umgebungsvariablen setzen
-                        export PATH="/home/$USER/bin:$PATH"
-                        export DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock"
-                        
-                        # Service starten
-                        systemctl --user enable docker
-                        systemctl --user start docker
-                        
-                        sleep 3
-                        
-                        # Testen
-                        if docker ps >/dev/null 2>&1; then
-                            log_success "✅ Docker Rootless funktioniert!"
-                            
-                            # Bashrc anpassen für permanente Lösung
-                            echo "export PATH=\"/home/$USER/bin:\$PATH\"" >> ~/.bashrc
-                            echo "export DOCKER_HOST=\"unix:///run/user/\$(id -u)/docker.sock\"" >> ~/.bashrc
-                            
-                            log_info "Docker Rootless ist jetzt aktiv und permanent konfiguriert"
-                            return 0
-                        else
-                            log_error "Rootless Docker Test fehlgeschlagen"
-                        fi
-                    else
-                        log_error "Rootless Docker Setup fehlgeschlagen"
-                    fi
-                fi
-            else
-                log_warning "Docker Rootless ist nicht verfügbar"
-                echo "Installation: sudo pacman -S docker-rootless-extras"
-            fi
-            ;;
-        5)
-            log_warning "Verwende sudo als Fallback (nicht optimal)"
-            log_info "Hinweis: Für bessere Lösung Terminal neu starten"
-            return 0  # Erlaubt sudo-Verwendung
-            ;;
-        *)
-            log_error "Ungültige Auswahl"
-            return 1
-            ;;
+        3) ;;
     esac
     
-    # Falls alle Lösungen fehlschlagen
-    log_error "Docker-Setup konnte nicht ohne sudo konfiguriert werden"
-    echo
-    log_info "🔍 Manuelle Lösungen:"
-    echo "1. Terminal neu starten: Ctrl+Shift+T"
-    echo "2. Session neu: exec bash"
-    echo "3. Neu anmelden: logout/login"
-    echo "4. System neustarten"
-    echo "5. Rootless Docker: sudo pacman -S docker-rootless-extras"
-    echo
-    
-    read -p "Mit sudo-Fallback fortfahren? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        log_warning "Verwende sudo-Fallback"
-        return 0
-    fi
-    
-    return 1
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
 }
 
-# Aktuelle Kalenderwoche ermitteln
-get_calendar_week() {
-    # 2-stelliges Jahr + KW + Woche
-    date +"%yKW%V"
-}
-
-# Container-Name für aktuelle KW generieren
-get_current_container_name() {
-    echo "$(get_calendar_week)-docker"
-}
-
-# Alle Ansible-Container auflisten
-list_ansible_containers() {
-    log_info "Ansible-Container im System:"
+manage_analytics_data() {
+    clear
+    echo -e "${BRIGHT_YELLOW}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BRIGHT_YELLOW}║${NC}                   ${WHITE}🧹 ANALYTICS-DATEN VERWALTEN${NC}                     ${BRIGHT_YELLOW}║${NC}"
+    echo -e "${BRIGHT_YELLOW}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    
+    echo
+    echo -e "${YELLOW}Aktuelle Analytics-Daten:${NC}"
     echo
     
-    local found_containers=false
-    
-    # Docker-Container
-    if command -v docker >/dev/null 2>&1; then
-        local docker_containers=$(docker ps -a --filter "name=-docker" --format "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}\t{{.Ports}}" 2>/dev/null)
-        
-        if [ -n "$docker_containers" ] && [ "$docker_containers" != "NAMES	STATUS	CREATED AT	PORTS" ]; then
-            echo "🐳 Docker-Container:"
-            echo "$docker_containers"
-            echo
-            found_containers=true
-            
-            # Docker Health-Status
-            echo "🩺 Docker Container-Health:"
-            docker ps -a --filter "name=-docker" --format "{{.Names}}" 2>/dev/null | while read container_name; do
-                if [ -n "$container_name" ]; then
-                    local status=$(docker inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null)
-                    printf "  %-20s " "$container_name:"
-                    
-                    case $status in
-                        "running")
-                            echo -n "🟢 Läuft"
-                            if docker exec "$container_name" test -f /home/developer/health-check.sh 2>/dev/null; then
-                                if docker exec "$container_name" /home/developer/health-check.sh >/dev/null 2>&1; then
-                                    echo " (✅ Gesund)"
-                                else
-                                    echo " (⚠️  Health-Check failed)"
-                                fi
-                            else
-                                echo " (❓ Alter Container)"
-                            fi
-                            ;;
-                        "exited")
-                            echo "🔴 Gestoppt"
-                            ;;
-                        *)
-                            echo "🟡 $status"
-                            ;;
-                    esac
-                fi
-            done
-            echo
-        fi
-    fi
-    
-    # Podman-Container
-    if command -v podman >/dev/null 2>&1; then
-        local podman_containers=$(podman ps -a --filter "name=ansible" --format "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}\t{{.Ports}}" 2>/dev/null)
-        
-        if [ -n "$podman_containers" ] && [ "$podman_containers" != "NAMES	STATUS	CREATED AT	PORTS" ]; then
-            echo "🐳 Podman-Container (rootless):"
-            echo "$podman_containers"
-            echo
-            found_containers=true
-            
-            # Podman Health-Status
-            echo "🩺 Podman Container-Health:"
-            podman ps -a --filter "name=ansible" --format "{{.Names}}" 2>/dev/null | while read container_name; do
-                if [ -n "$container_name" ]; then
-                    local status=$(podman inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null)
-                    printf "  %-20s " "$container_name:"
-                    
-                    case $status in
-                        "running")
-                            echo "🟢 Läuft (rootless)"
-                            ;;
-                        "exited")
-                            echo "🔴 Gestoppt (rootless)"
-                            ;;
-                        *)
-                            echo "🟡 $status (rootless)"
-                            ;;
-                    esac
-                fi
-            done
-            echo
-        fi
-    fi
-    
-    if [ "$found_containers" = false ]; then
-        echo "  Keine Ansible-Container gefunden."
-        return 1
-    fi
-    
-    return 0
-}
-
-# Container-Management Menü
-manage_containers() {
-    while true; do
-        echo
-        log_info "Container-Management:"
-        
-        if list_ansible_containers; then
-            echo
-            echo "Aktionen:"
-            echo "1) Container starten"
-            echo "2) Container stoppen" 
-            echo "3) Container löschen"
-            echo "4) In Container einloggen"
-            echo "5) Container-Details anzeigen"
-            echo "6) Alte Container (>4 Wochen) löschen"
-            echo "7) Container-Engine wählen (Docker/Podman)"
-            echo "8) Zurück zum Hauptmenü"
-        else
-            echo
-            echo "Optionen:"
-            echo "1) Neuen Docker-Container erstellen"
-            echo "2) Neuen Podman-Container erstellen"
-            echo "3) Zurück zum Hauptmenü"
-        fi
-        
-        read -p "Wähle eine Option: " choice
-        
-        if list_ansible_containers >/dev/null 2>&1; then
-            # Container vorhanden
-            case $choice in
-                1)
-                    echo
-                    echo "Container-Engine:"
-                    echo "1) Docker-Container starten"
-                    echo "2) Podman-Container starten"
-                    read -p "Engine [1-2]: " engine
-                    read -p "Container-Name eingeben: " container_name
-                    
-                    if [ -n "$container_name" ]; then
-                        case $engine in
-                            1) docker start "$container_name" && log_success "Docker-Container '$container_name' gestartet" ;;
-                            2) podman start "$container_name" && log_success "Podman-Container '$container_name' gestartet" ;;
-                            *) log_error "Ungültige Engine-Auswahl" ;;
-                        esac
-                    fi
-                    ;;
-                2)
-                    echo
-                    echo "Container-Engine:"
-                    echo "1) Docker-Container stoppen"
-                    echo "2) Podman-Container stoppen"
-                    read -p "Engine [1-2]: " engine
-                    read -p "Container-Name eingeben: " container_name
-                    
-                    if [ -n "$container_name" ]; then
-                        case $engine in
-                            1) docker stop "$container_name" && log_success "Docker-Container '$container_name' gestoppt" ;;
-                            2) podman stop "$container_name" && log_success "Podman-Container '$container_name' gestoppt" ;;
-                            *) log_error "Ungültige Engine-Auswahl" ;;
-                        esac
-                    fi
-                    ;;
-                3)
-                    cleanup_containers
-                    ;;
-                4)
-                    echo
-                    echo "Container-Engine:"
-                    echo "1) Docker-Container"
-                    echo "2) Podman-Container"
-                    read -p "Engine [1-2]: " engine
-                    read -p "Container-Name eingeben: " container_name
-                    
-                    if [ -n "$container_name" ]; then
-                        log_info "Verbinde mit Container '$container_name'..."
-                        case $engine in
-                            1) docker exec -it "$container_name" /bin/bash ;;
-                            2) podman exec -it "$container_name" su - developer ;;
-                            *) log_error "Ungültige Engine-Auswahl" ;;
-                        esac
-                    fi
-                    ;;
-                5)
-                    echo
-                    echo "Container-Engine:"
-                    echo "1) Docker-Container"
-                    echo "2) Podman-Container"
-                    read -p "Engine [1-2]: " engine
-                    read -p "Container-Name eingeben: " container_name
-                    
-                    if [ -n "$container_name" ]; then
-                        case $engine in
-                            1) 
-                                if command -v jq >/dev/null 2>&1; then
-                                    docker inspect "$container_name" | jq '.[0] | {Name: .Name, Status: .State.Status, Created: .Created, Ports: .NetworkSettings.Ports}'
-                                else
-                                    docker inspect "$container_name"
-                                fi
-                                ;;
-                            2) 
-                                if command -v jq >/dev/null 2>&1; then
-                                    podman inspect "$container_name" | jq '.[0] | {Name: .Name, Status: .State.Status, Created: .Created, Ports: .NetworkSettings.Ports}'
-                                else
-                                    podman inspect "$container_name"
-                                fi
-                                ;;
-                            *) log_error "Ungültige Engine-Auswahl" ;;
-                        esac
-                    fi
-                    ;;
-                6)
-                    cleanup_containers
-                    ;;
-                7)
-                    echo
-                    log_info "Verfügbare Container-Engines:"
-                    if command -v docker >/dev/null 2>&1; then
-                        if docker ps >/dev/null 2>&1; then
-                            echo "✅ Docker (verfügbar)"
-                        else
-                            echo "⚠️  Docker (Berechtigungsprobleme)"
-                        fi
-                    else
-                        echo "❌ Docker (nicht installiert)"
-                    fi
-                    
-                    if command -v podman >/dev/null 2>&1; then
-                        if podman info >/dev/null 2>&1; then
-                            echo "✅ Podman (rootless verfügbar)"
-                        else
-                            echo "⚠️  Podman (Setup erforderlich)"
-                        fi
-                    else
-                        echo "❌ Podman (nicht installiert)"
-                    fi
-                    
-                    echo
-                    echo "Docker: Standard, weit verbreitet, evtl. sudo erforderlich"
-                    echo "Podman: Rootless, sicherer, kein sudo, daemon-frei"
-                    
-                    read -p "Drücke Enter zum Fortfahren..."
-                    ;;
-                8)
-                    return 0
-                    ;;
-                *)
-                    log_error "Ungültige Auswahl"
-                    ;;
-            esac
-        else
-            # Keine Container vorhanden
-            case $choice in
-                1)
-                    create_weekly_container_auto
-                    ;;
-                2)
-                    create_podman_container_auto
-                    ;;
-                3)
-                    return 0
-                    ;;
-                *)
-                    log_error "Ungültige Auswahl"
-                    ;;
-            esac
-        fi
-    done
-}
-
-# Alte Container löschen (älter als 4 Wochen)
-cleanup_old_containers() {
-    log_info "Suche nach alten Containern (älter als 4 Wochen)..."
-    
-    local current_year=$(date +%y)  # 2-stelliges Jahr
-    local current_week=$(date +%V)
-    local cutoff_week=$((current_week - 4))
-    
-    # Über Jahreswechsel hinweg berücksichtigen
-    if [ $cutoff_week -le 0 ]; then
-        cutoff_week=$((52 + cutoff_week))
-        current_year=$((current_year - 1))
-        # 2-stelliges Jahr Format beibehalten
-        current_year=$(printf "%02d" $current_year)
-    fi
-    
-    local old_containers=$(docker ps -a --filter "name=-docker" --format "{{.Names}}" | while read container; do
-        # Neues Pattern: 25KW28-docker
-        if [[ $container =~ ([0-9]{2})KW([0-9]+)-docker ]]; then
-            local year=${BASH_REMATCH[1]}
-            local week=${BASH_REMATCH[2]}
-            
-            # Jahreszahl in 4-stellig für Vergleich umwandeln
-            local full_year=$((2000 + 10#$year))
-            local current_full_year=$((2000 + 10#$current_year))
-            
-            # Einfache Altersberechnung (kann über Jahresgrenzen ungenau sein)
-            if [ $full_year -lt $current_full_year ] || ([ $full_year -eq $current_full_year ] && [ $((10#$week)) -lt $cutoff_week ]); then
-                echo $container
-            fi
-        fi
-    done)
-    
-    if [ -z "$old_containers" ]; then
-        log_info "Keine alten Container gefunden."
-        return 0
-    fi
-    
-    echo "Gefundene alte Container:"
-    echo "$old_containers"
-    echo
-    
-    read -p "Diese Container löschen? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "$old_containers" | while read container; do
-            docker rm -f "$container" && log_success "Container '$container' gelöscht"
-        done
-    fi
-}
-
-# Podman Rootless Container erstellen
-create_podman_container_auto() {
-    local container_name=$(get_current_container_name)
-    
-    log_info "🐳 Podman Rootless Container-Erstellung (KEIN sudo!)"
-    log_info "Container-Name: $container_name"
-    log_info "Kalenderwoche: $(date +%V) / Jahr: $(date +%Y)"
-    
-    # Podman installieren falls nötig
-    if ! command -v podman >/dev/null 2>&1; then
-        log_info "Podman ist nicht installiert. Installiere..."
-        
-        if command -v yay >/dev/null 2>&1; then
-            yay -S --noconfirm podman
-        elif command -v paru >/dev/null 2>&1; then
-            paru -S --noconfirm podman
-        else
-            log_warning "Bitte installiere Podman manuell:"
-            echo "sudo pacman -S podman"
-            echo "Oder: yay -S podman"
-            return 1
-        fi
-    fi
-    
-    # Rootless-Setup prüfen
-    if ! podman info >/dev/null 2>&1; then
-        log_info "Richte Podman Rootless ein..."
-        
-        # Subuid/subgid prüfen
-        if ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
-            log_error "Subuid/subgid nicht konfiguriert!"
-            echo
-            echo "Führe diese Befehle aus:"
-            echo "sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER"
-            echo "podman system migrate"
-            echo "newgrp $(id -gn)"
-            echo
-            echo "Dann Script neu starten."
-            return 1
-        fi
-        
-        podman system migrate 2>/dev/null || true
-    fi
-    
-    log_success "✅ Podman Rootless ist einsatzbereit!"
-    
-    # Container-Port
-    local ssh_port=$((3280 + $(date +%V)))  # Andere Ports als Docker
-    
-    # Prüfen ob Container existiert
-    if podman ps -a --format "{{.Names}}" | grep -q "^${container_name}$"; then
-        log_warning "Container '$container_name' existiert bereits"
-        
-        read -p "Verwenden (1) oder neu erstellen (2)? [1/2]: " -n 1 -r
-        echo
-        
-        if [[ $REPLY == "2" ]]; then
-            podman rm -f "$container_name" 2>/dev/null || true
-        else
-            if [ "$(podman inspect -f '{{.State.Status}}' "$container_name")" != "running" ]; then
-                podman start "$container_name"
-            fi
-            
-            log_info "Verbinde mit bestehendem Container..."
-            podman exec -it "$container_name" su - developer
-            return 0
-        fi
-    fi
-    
-    log_info "🔨 Erstelle Ansible-Container mit Podman (rootless)..."
-    
-    # Container erstellen (ohne sudo!)
-    if podman run -d \
-        --name "$container_name" \
-        --hostname "ansible-$(date +%yKW%V)" \
-        -p ${ssh_port}:22 \
-        -v "${container_name}-projects:/home/developer/ansible-projekte:Z" \
-        -v "${container_name}-ssh:/home/developer/.ssh:Z" \
-        --security-opt label=disable \
-        archlinux:latest \
-        /bin/bash -c "
-            # System-Update ohne Interaktion
-            pacman -Syu --noconfirm
-            
-            # Basis-Pakete installieren
-            pacman -S --noconfirm \
-                sudo git curl vim nano openssh \
-                python python-pip ansible \
-                yamllint tree htop jq
-            
-            # User erstellen
-            useradd -m -s /bin/bash developer
-            echo 'developer:developer' | chpasswd
-            echo 'developer ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-            
-            # SSH-Setup
-            ssh-keygen -A
-            mkdir -p /run/sshd
-            echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
-            echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
-            
-            # Python-Module (ohne Warnungen)
-            pip install --root-user-action=ignore --break-system-packages \
-                jinja2 paramiko PyYAML cryptography ansible-lint
-            
-            # User-Setup
-            su - developer -c '
-                mkdir -p ansible-projekte/webserver-beispiel/{inventory,playbooks,templates,files}
-                
-                # Ansible-Config
-                mkdir -p .ansible
-                cat > .ansible/ansible.cfg << \"CONFEOF\"
-[defaults]
-host_key_checking = False
-inventory = ./inventory/hosts.yml
-stdout_callback = yaml
-retry_files_enabled = False
-gathering = smart
-
-[privilege_escalation]
-become = True
-become_method = sudo
-become_ask_pass = False
-CONFEOF
-                
-                # Test-Inventory
-                cat > ansible-projekte/webserver-beispiel/inventory/hosts.yml << \"HOSTEOF\"
-all:
-  children:
-    webservers:
-      hosts:
-        localhost:
-          ansible_connection: local
-      vars:
-        ansible_python_interpreter: /usr/bin/python
-HOSTEOF
-                
-                # Test-Playbook
-                cat > ansible-projekte/webserver-beispiel/playbooks/test.yml << \"TESTEOF\"
----
-- name: Podman Ansible System Test
-  hosts: localhost
-  connection: local
-  gather_facts: yes
-  tasks:
-    - name: Container-Info anzeigen
-      debug:
-        msg: |
-          🐳 Ansible läuft perfekt in Podman (rootless)!
-          Container: {{ ansible_hostname }}
-          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-          Python: {{ ansible_python_version }}
-          Ansible: {{ ansible_version.full }}
-          User: {{ ansible_user_id }}
-          
-    - name: Test-Datei erstellen
-      copy:
-        content: |
-          Podman Ansible Test erfolgreich!
-          Erstellt am: {{ ansible_date_time.iso8601 }}
-          Container: {{ ansible_hostname }}
-          Rootless: Ja
-        dest: /tmp/podman-ansible-test.txt
-        mode: \"0644\"
-        
-    - name: Test bestätigen
-      debug:
-        msg: \"✅ Alle Tests erfolgreich! Datei: /tmp/podman-ansible-test.txt\"
-TESTEOF
-                
-                # Container-Info Script
-                cat > container-info.sh << \"INFOEOF\"
-#!/bin/bash
-echo \"=== 🐳 Podman Ansible Container (Rootless) ===\"
-echo \"Container: \$(hostname)\"
-echo \"User: \$(whoami)\"
-echo \"Datum: \$(date)\"
-echo \"Ansible: \$(ansible --version | head -1)\"
-echo \"Python: \$(python --version)\"
-echo
-echo \"📁 Projekte:\"
-ls -la ansible-projekte/
-echo
-echo \"🚀 Schnellstart:\"
-echo \"  cd ansible-projekte/webserver-beispiel\"
-echo \"  ansible-playbook playbooks/test.yml\"
-echo
-echo \"💡 Podman Vorteile:\"
-echo \"  ✅ Rootless (kein sudo)\"
-echo \"  ✅ Daemon-frei\"  
-echo \"  ✅ Bessere Sicherheit\"
-INFOEOF
-                chmod +x container-info.sh
-                
-                # Bashrc anpassen
-                echo \"export PS1=\\\"\\[\\033[0;32m\\]\\u@\\h-podman\\[\\033[00m\\]:\\[\\033[0;34m\\]\\w\\[\\033[00m\\]\\$ \\\"\" >> .bashrc
-                echo \"cd /home/developer/ansible-projekte\" >> .bashrc
-                echo \"./container-info.sh\" >> .bashrc
-                echo \"alias ll=\\\"ls -la\\\"\" >> .bashrc
-                echo \"alias ap=\\\"ansible-playbook\\\"\" >> .bashrc
-                echo \"alias av=\\\"ansible --version\\\"\" >> .bashrc
-            '
-            
-            # SSH-Server starten und Container am Laufen halten
-            /usr/sbin/sshd -D &
-            tail -f /dev/null
-        "; then
-        
-        sleep 10
-        
-        log_success "✅ Podman-Container erfolgreich erstellt!"
-        
-        echo
-        log_info "=== Container-Informationen ==="
-        echo "• Name: $container_name"
-        echo "• SSH-Port: $ssh_port"
-        echo "• Hostname: ansible-$(date +%yKW%V)"
-        echo "• User: developer / Password: developer"
-        echo "• Container-Engine: Podman (rootless)"
-        echo "• Sudo erforderlich: NEIN!"
-        echo
-        
-        log_info "=== Zugriff auf Container ==="
-        echo "1) Podman Shell: podman exec -it $container_name su - developer"
-        echo "2) SSH-Zugang: ssh developer@localhost -p $ssh_port"
-        echo "3) Test: podman exec $container_name su - developer -c 'ansible --version'"
-        echo
-        
-        # Sofortiger Test
-        log_info "🧪 Führe Ansible-Test aus..."
-        if podman exec "$container_name" su - developer -c "
-            cd ansible-projekte/webserver-beispiel && 
-            ansible-playbook playbooks/test.yml
-        "; then
-            log_success "✅ Ansible-Test in Podman erfolgreich!"
-            
-            # Test-Datei prüfen
-            if podman exec "$container_name" test -f /tmp/podman-ansible-test.txt; then
-                log_success "✅ Test-Datei wurde erstellt"
-                log_info "📄 Inhalt:"
-                podman exec "$container_name" cat /tmp/podman-ansible-test.txt | sed 's/^/    /'
-            fi
-        else
-            log_warning "⚠️  Ansible-Test hatte Probleme"
-        fi
-        
-        # Login-Script für Podman erstellen
-        create_podman_login_script
-        
-        echo
-        read -p "Container-Shell starten? (Y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            log_info "Starte Podman-Container-Shell..."
-            podman exec -it "$container_name" su - developer
-        else
-            echo
-            log_success "🎉 Podman-Container einsatzbereit!"
-            echo
-            log_info "🚀 Schneller Zugang:"
-            echo "• podman exec -it $container_name su - developer"
-            echo "• ssh developer@localhost -p $ssh_port"
-            echo "• ./podman-login.sh (falls erstellt)"
-        fi
-        
+    # Dateigröße und Anzahl Einträge anzeigen
+    if [ -f "$PERFORMANCE_LOG" ]; then
+        local perf_size=$(du -h "$PERFORMANCE_LOG" | cut -f1)
+        local perf_lines=$(($(wc -l < "$PERFORMANCE_LOG") - 1))
+        echo "📊 Performance-Log: $perf_size, $perf_lines Einträge"
     else
-        log_error "Podman-Container-Erstellung fehlgeschlagen"
-        return 1
+        echo "📊 Performance-Log: Nicht vorhanden"
     fi
     
-    return 0
-}
-
-# Podman Login-Script erstellen
-create_podman_login_script() {
-    local login_script="./podman-login.sh"
-    
-    if [ -f "$login_script" ]; then
-        return 0
-    fi
-    
-    log_info "📝 Erstelle Podman-Login-Script..."
-    
-    cat > "$login_script" << 'PODMANEOF'
-#!/bin/bash
-
-# Podman Ansible Container Login Helper (Rootless)
-
-get_current_container() {
-    echo "$(date +%yKW%V)-docker"
-}
-
-quick_shell() {
-    local container=$(get_current_container)
-    
-    if [ "$(podman inspect -f '{{.State.Status}}' "$container" 2>/dev/null)" != "running" ]; then
-        echo "Starte Container..."
-        podman start "$container"
-        sleep 2
-    fi
-    
-    podman exec -it "$container" su - developer
-}
-
-case "${1:-}" in
-    shell) quick_shell ;;
-    info) 
-        podman ps -a --filter "name=ansible"
-        ;;
-    *)
-        echo "Podman Ansible Login"
-        echo "Verwendung:"
-        echo "  $0 shell    # Container-Shell"
-        echo "  $0 info     # Container-Info"
-        echo
-        quick_shell
-        ;;
-esac
-PODMANEOF
-    
-    chmod +x "$login_script"
-    log_success "✅ Podman-Login-Script erstellt: $login_script"
-}
-create_login_script() {
-    local login_script="./login.sh"
-    
-    # Prüfen ob bereits vorhanden
-    if [ -f "$login_script" ]; then
-        log_info "📝 Login-Script bereits vorhanden: $login_script"
-        return 0
-    fi
-    
-    log_info "📝 Erstelle Login-Script: $login_script"
-    
-    cat > "$login_script" << 'LOGINEOF'
-#!/bin/bash
-
-# =============================================================================
-# Ansible Container Login Helper
-# =============================================================================
-# Automatischer Login in Ansible-Container
-# Generiert von: ansible.sh
-# =============================================================================
-
-set -e
-
-# Farben für Output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-# Logging-Funktionen
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-# Banner
-show_banner() {
-    echo -e "${CYAN}"
-    cat << 'EOF'
-╔═══════════════════════════════════════════════════════════════╗
-║                   ANSIBLE CONTAINER LOGIN                    ║
-║                   Schneller Zugang zu Containern             ║
-╚═══════════════════════════════════════════════════════════════╝
-EOF
-    echo -e "${NC}"
-}
-
-# Aktuelle Kalenderwoche ermitteln
-get_current_container_name() {
-    echo "$(date +%yKW%V)-docker"
-}
-
-# Container-SSH-Port ermitteln
-get_container_ssh_port() {
-    local container_name=$1
-    if [[ $container_name =~ [0-9]{2}KW([0-9]+)-docker ]]; then
-        local week=${BASH_REMATCH[1]}
-        echo $((2280 + 10#$week))
+    if [ -f "$HEALTH_LOG" ]; then
+        local health_size=$(du -h "$HEALTH_LOG" | cut -f1)
+        local health_lines=$(($(wc -l < "$HEALTH_LOG") - 1))
+        echo "🩺 Health-Log: $health_size, $health_lines Einträge"
     else
-        echo "2222"
-    fi
-}
-
-# Quick-Login Funktionen
-quick_shell() {
-    local container=$(get_current_container_name)
-    log_info "Verbinde mit $container..."
-    
-    if [ "$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)" != "running" ]; then
-        log_info "Starte Container..."
-        docker start "$container" >/dev/null && sleep 2
+        echo "🩺 Health-Log: Nicht vorhanden"
     fi
     
-    docker exec -it "$container" /bin/bash
-}
-
-quick_ssh() {
-    local container=$(get_current_container_name)
-    local port=$(get_container_ssh_port "$container")
-    
-    log_info "SSH-Verbindung zu $container (Port: $port)"
-    log_info "User: developer | Password: developer"
-    
-    if [ "$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)" != "running" ]; then
-        docker start "$container" >/dev/null && sleep 3
-    fi
-    
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p "$port" developer@localhost
-}
-
-show_container_info() {
-    local container=$(get_current_container_name)
-    local status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
-    local port=$(get_container_ssh_port "$container")
-    
-    echo -e "${BLUE}=== Aktueller Container ===${NC}"
-    echo "📋 Name: $container"
-    echo "🔌 Status: $([ "$status" = "running" ] && echo "🟢 Läuft" || echo "🔴 Gestoppt")"
-    echo "🌐 SSH-Port: $port"
-    echo "👤 User: developer"
-    echo "🔑 Password: developer"
-    
-    if [ "$status" = "running" ]; then
-        local hostname=$(docker exec "$container" hostname 2>/dev/null || echo "unknown")
-        echo "🖥️  Hostname: $hostname"
-        
-        if docker exec "$container" command -v ansible >/dev/null 2>&1; then
-            local ansible_ver=$(docker exec "$container" ansible --version 2>/dev/null | head -1)
-            echo "⚙️  Ansible: $ansible_ver"
-        fi
-    fi
-}
-
-list_containers() {
-    echo "Verfügbare Container:"
-    docker ps -a --filter "name=-docker" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "Keine Container gefunden"
-}
-
-# Hauptmenü
-main_menu() {
-    show_banner
-    
-    while true; do
-        echo
-        show_container_info
-        echo
-        echo "Schnell-Zugang:"
-        echo "1) 🐚 Docker Shell (direkter Zugang)"
-        echo "2) 🌐 SSH-Login (Port: $(get_container_ssh_port $(get_current_container_name)))"
-        echo "3) 📋 Container-Informationen"
-        echo "4) 📊 Alle Container anzeigen"
-        echo "5) 🚀 Ansible-Test ausführen"
-        echo "6) 🔄 Container neustarten"
-        echo "7) ❌ Beenden"
-        echo
-        
-        read -p "Wähle Option [1-7]: " choice
-        
-        case $choice in
-            1) quick_shell ;;
-            2) quick_ssh ;;
-            3) show_container_info; read -p "Drücke Enter..." ;;
-            4) list_containers; read -p "Drücke Enter..." ;;
-            5) 
-                local container=$(get_current_container_name)
-                docker exec "$container" /bin/bash -c "
-                    cd /home/developer/ansible-projekte/webserver-beispiel && 
-                    ansible-playbook playbooks/test.yml
-                " 2>/dev/null || log_error "Test fehlgeschlagen"
-                read -p "Drücke Enter..."
-                ;;
-            6)
-                local container=$(get_current_container_name)
-                log_info "Starte $container neu..."
-                docker restart "$container" >/dev/null && log_success "Neustart erfolgreich"
-                ;;
-            7) exit 0 ;;
-            *) log_error "Ungültige Auswahl" ;;
-        esac
-    done
-}
-
-# Kommandozeilen-Parameter
-case "${1:-}" in
-    -h|--help)
-        echo "Ansible Container Login Helper"
-        echo "Verwendung:"
-        echo "  $0          Interaktives Menü"
-        echo "  $0 shell    Direkte Docker-Shell"
-        echo "  $0 ssh      SSH-Verbindung"
-        echo "  $0 info     Container-Info anzeigen"
-        echo "  $0 list     Alle Container auflisten"
-        exit 0
-        ;;
-    shell) quick_shell ;;
-    ssh) quick_ssh ;;
-    info) show_container_info ;;
-    list) list_containers ;;
-    *) main_menu ;;
-esac
-LOGINEOF
-
-    chmod +x "$login_script"
-    log_success "✅ Login-Script erstellt: $login_script"
+    local analytics_total_size=$(du -sh "$ANALYTICS_DIR" 2>/dev/null | cut -f1 || echo "0B")
+    echo "📁 Gesamt-Verzeichnis: $analytics_total_size"
     
     echo
-    log_info "🎯 Verwendung des Login-Scripts:"
-    echo "• Interaktiv: ./login.sh"
-    echo "• Schnell-Shell: ./login.sh shell"
-    echo "• SSH-Login: ./login.sh ssh"
-    echo "• Container-Info: ./login.sh info"
-}
-
-# Automatischer KW-Container mit Vollinstallation
-create_weekly_container_auto() {
-    local container_name=$(get_current_container_name)
-    
-    log_info "🚀 Automatische Container-Erstellung + Ansible-Vollinstallation"
-    log_info "Container-Name: $container_name"
-    log_info "Kalenderwoche: $(date +%V) / Jahr: $(date +%Y)"
-    
-    # Docker-Setup und Berechtigungen prüfen
-    if ! ensure_docker; then
-        log_error "Docker-Setup fehlgeschlagen"
-        return 1
-    fi
-    
-    # Docker-Command bestimmen (mit oder ohne sudo)
-    local DOCKER_CMD="docker"
-    if ! docker ps >/dev/null 2>&1; then
-        log_info "Verwende sudo für Docker-Befehle..."
-        DOCKER_CMD="sudo docker"
-        
-        # Testen ob sudo-docker funktioniert
-        if ! $DOCKER_CMD ps >/dev/null 2>&1; then
-            log_error "Auch sudo-docker funktioniert nicht"
-            echo
-            log_info "Versuche Docker-Service neu zu starten..."
-            sudo systemctl restart docker
-            sleep 5
-            
-            if ! $DOCKER_CMD ps >/dev/null 2>&1; then
-                log_error "Docker ist nicht funktionsfähig"
-                return 1
-            fi
-        fi
-    fi
-    
-    log_success "✅ Docker einsatzbereit (Command: $DOCKER_CMD)"
-    
-    # Prüfen ob Container bereits existiert
-    if $DOCKER_CMD ps -a --format "{{.Names}}" | grep -q "^${container_name}$"; then
-        log_warning "Container '$container_name' existiert bereits!"
-        echo
-        echo "Optionen:"
-        echo "1) Bestehenden Container verwenden"
-        echo "2) Container neu erstellen (Daten gehen verloren)"
-        echo "3) Abbrechen"
-        
-        read -p "Wähle [1-3]: " -n 1 -r
-        echo
-        
-        case $REPLY in
-            1)
-                log_info "Verwende bestehenden Container..."
-                if [ "$($DOCKER_CMD inspect -f '{{.State.Running}}' "$container_name" 2>/dev/null)" != "true" ]; then
-                    log_info "Starte Container..."
-                    $DOCKER_CMD start "$container_name"
-                    sleep 3
-                fi
-                
-                log_info "Verbinde mit Container für Ansible-Check..."
-                $DOCKER_CMD exec -it "$container_name" /bin/bash -c "
-                    echo '=== Ansible Status ==='
-                    if command -v ansible >/dev/null 2>&1; then
-                        echo '✅ Ansible ist installiert:'
-                        ansible --version
-                        echo
-                        echo '📁 Verfügbare Projekte:'
-                        ls -la /home/developer/ansible-projekte/ 2>/dev/null || echo 'Keine Projekte gefunden'
-                    else
-                        echo '❌ Ansible ist nicht installiert'
-                        echo 'Container scheint beschädigt zu sein'
-                    fi
-                    echo
-                    echo '🚀 Schnellstart:'
-                    echo '  cd ansible-projekte/webserver-beispiel'
-                    echo '  ansible-playbook playbooks/test.yml'
-                    echo
-                    echo 'Drücke Enter für interaktive Shell...'
-                    read
-                    exec /bin/bash
-                "
-                return 0
-                ;;
-            2)
-                log_info "Lösche bestehenden Container..."
-                $DOCKER_CMD rm -f "$container_name" 2>/dev/null || true
-                ;;
-            3)
-                log_info "Abgebrochen"
-                return 0
-                ;;
-            *)
-                log_error "Ungültige Auswahl"
-                return 1
-                ;;
-        esac
-    fi
-    
-    # Dockerfile für optimierte Installation erstellen
-    local setup_dir="/tmp/ansible-container-$(date +%s)"
-    mkdir -p "$setup_dir"
-    
-    log_info "Erstelle optimiertes Docker-Image..."
-    
-    cat > "$setup_dir/Dockerfile" << 'EOF'
-FROM archlinux:latest
-
-# System update und Basis-Pakete
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm \
-        base-devel \
-        sudo \
-        git \
-        curl \
-        wget \
-        vim \
-        nano \
-        openssh \
-        python \
-        python-pip \
-        python-virtualenv \
-        ansible \
-        docker \
-        yamllint \
-        tree \
-        htop \
-        unzip \
-        jq && \
-    pacman -Scc --noconfirm
-
-# Benutzer erstellen
-RUN useradd -m -G wheel -s /bin/bash developer && \
-    echo 'developer:developer' | chpasswd && \
-    echo '%wheel ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# SSH-Server konfigurieren
-RUN ssh-keygen -A && \
-    mkdir -p /run/sshd && \
-    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
-    echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
-
-# Python-Module als root installieren (für System-weite Verfügbarkeit)
-# Mit expliziter root-user-action um Warnung zu unterdrücken
-RUN pip install --root-user-action=ignore --break-system-packages \
-        jinja2 \
-        paramiko \
-        PyYAML \
-        cryptography \
-        ansible-lint \
-        molecule[docker] \
-        --no-warn-script-location && \
-    echo "# Python-Module erfolgreich installiert" > /tmp/pip-install.log
-
-# Wechsel zu developer user für weitere Setup-Schritte
-USER developer
-WORKDIR /home/developer
-
-# Python Virtual Environment für User (optional für zusätzliche Module)
-RUN python -m venv ~/.ansible-venv && \
-    echo "source ~/.ansible-venv/bin/activate" >> ~/.bashrc && \
-    echo "export ANSIBLE_PYTHON_INTERPRETER=~/.ansible-venv/bin/python" >> ~/.bashrc
-
-# Ansible-Konfiguration
-RUN mkdir -p /home/developer/{ansible-projekte,Downloads,Documents,.ansible,.ssh} && \
-    echo '[defaults]' > ~/.ansible/ansible.cfg && \
-    echo 'host_key_checking = False' >> ~/.ansible/ansible.cfg && \
-    echo 'inventory = ./inventory/hosts.yml' >> ~/.ansible/ansible.cfg && \
-    echo 'remote_user = developer' >> ~/.ansible/ansible.cfg && \
-    echo 'stdout_callback = yaml' >> ~/.ansible/ansible.cfg && \
-    echo 'retry_files_enabled = False' >> ~/.ansible/ansible.cfg && \
-    echo 'gathering = smart' >> ~/.ansible/ansible.cfg && \
-    echo 'fact_caching = memory' >> ~/.ansible/ansible.cfg && \
-    echo '' >> ~/.ansible/ansible.cfg && \
-    echo '[privilege_escalation]' >> ~/.ansible/ansible.cfg && \
-    echo 'become = True' >> ~/.ansible/ansible.cfg && \
-    echo 'become_method = sudo' >> ~/.ansible/ansible.cfg && \
-    echo 'become_ask_pass = False' >> ~/.ansible/ansible.cfg && \
-    echo '' >> ~/.ansible/ansible.cfg && \
-    echo '[ssh_connection]' >> ~/.ansible/ansible.cfg && \
-    echo 'ssh_args = -o ControlMaster=auto -o ControlPersist=60s' >> ~/.ansible/ansible.cfg && \
-    echo 'pipelining = True' >> ~/.ansible/ansible.cfg
-
-# Beispiel-Projekt erstellen
-RUN mkdir -p ansible-projekte/webserver-beispiel/{inventory,playbooks,templates,files,group_vars,host_vars} && \
-    echo 'all:' > ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '  children:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '    webservers:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '      hosts:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '        localhost:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '          ansible_connection: local' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '      vars:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '        ansible_python_interpreter: /usr/bin/python' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml
-
-# Erweiterte Test-Playbooks erstellen
-RUN echo '---' > ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '- name: Ansible System Test' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  hosts: localhost' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  connection: local' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  gather_facts: yes' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  tasks:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '    - name: Container-Info anzeigen' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '      debug:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        msg: |' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          🚀 Ansible läuft perfekt im Container!' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Container: {{ ansible_hostname }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Python: {{ ansible_python_version }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Ansible: {{ ansible_version.full }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '    - name: Temp-Datei erstellen' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '      copy:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        content: |' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Ansible Test erfolgreich!' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Erstellt am: {{ ansible_date_time.iso8601 }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Container: {{ ansible_hostname }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        dest: /tmp/ansible-test-success.txt' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        mode: "0644"' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '    - name: Test-Status bestätigen' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '      debug:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        msg: "✅ Alle Tests erfolgreich! Datei erstellt: /tmp/ansible-test-success.txt"' >> ansible-projekte/webserver-beispiel/playbooks/test.yml
-
-# Erweiterte Container-Info mit Fehlerbehandlung
-RUN echo '#!/bin/bash' > /home/developer/container-info.sh && \
-    echo 'set -e' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo 'echo "=== 🐳 Ansible Development Container ==="' >> /home/developer/container-info.sh && \
-    echo 'echo "Container: $(hostname)"' >> /home/developer/container-info.sh && \
-    echo 'echo "Benutzer: $(whoami)"' >> /home/developer/container-info.sh && \
-    echo 'echo "Datum: $(date)"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Ansible-Version prüfen' >> /home/developer/container-info.sh && \
-    echo 'if command -v ansible >/dev/null 2>&1; then' >> /home/developer/container-info.sh && \
-    echo '    echo "✅ Ansible: $(ansible --version | head -1)"' >> /home/developer/container-info.sh && \
-    echo 'else' >> /home/developer/container-info.sh && \
-    echo '    echo "❌ Ansible nicht gefunden"' >> /home/developer/container-info.sh && \
-    echo 'fi' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Python-Version prüfen' >> /home/developer/container-info.sh && \
-    echo 'if command -v python >/dev/null 2>&1; then' >> /home/developer/container-info.sh && \
-    echo '    echo "✅ Python: $(python --version)"' >> /home/developer/container-info.sh && \
-    echo 'else' >> /home/developer/container-info.sh && \
-    echo '    echo "❌ Python nicht gefunden"' >> /home/developer/container-info.sh && \
-    echo 'fi' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Python-Module prüfen' >> /home/developer/container-info.sh && \
-    echo 'echo "🐍 Python-Module:"' >> /home/developer/container-info.sh && \
-    echo 'for module in jinja2 paramiko yaml cryptography; do' >> /home/developer/container-info.sh && \
-    echo '    if python -c "import $module" 2>/dev/null; then' >> /home/developer/container-info.sh && \
-    echo '        echo "  ✅ $module"' >> /home/developer/container-info.sh && \
-    echo '    else' >> /home/developer/container-info.sh && \
-    echo '        echo "  ❌ $module"' >> /home/developer/container-info.sh && \
-    echo '    fi' >> /home/developer/container-info.sh && \
-    echo 'done' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo 'echo "📁 Arbeitsverzeichnis: $(pwd)"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Projekte anzeigen' >> /home/developer/container-info.sh && \
-    echo 'if [ -d ansible-projekte ]; then' >> /home/developer/container-info.sh && \
-    echo '    echo "📁 Verfügbare Projekte:"' >> /home/developer/container-info.sh && \
-    echo '    ls -la ansible-projekte/ 2>/dev/null || echo "  Keine Projekte gefunden"' >> /home/developer/container-info.sh && \
-    echo 'else' >> /home/developer/container-info.sh && \
-    echo '    echo "📁 Projekte-Verzeichnis nicht gefunden"' >> /home/developer/container-info.sh && \
-    echo 'fi' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo 'echo "🚀 Schnellstart:"' >> /home/developer/container-info.sh && \
-    echo 'echo "  cd ansible-projekte/webserver-beispiel"' >> /home/developer/container-info.sh && \
-    echo 'echo "  ansible-playbook playbooks/test.yml"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo 'echo "📚 Verfügbare Befehle:"' >> /home/developer/container-info.sh && \
-    echo 'echo "  av  - ansible --version"' >> /home/developer/container-info.sh && \
-    echo 'echo "  ap  - ansible-playbook"' >> /home/developer/container-info.sh && \
-    echo 'echo "  ll  - ls -la"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    chmod +x /home/developer/container-info.sh
-
-# Verbesserte Bashrc mit Fehlerbehandlung
-RUN echo '# Ansible Container Bashrc' >> ~/.bashrc && \
-    echo 'export PS1="\[\033[0;32m\]\u@\h-ansible\[\033[00m\]:\[\033[0;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Wechsel zu Projekt-Verzeichnis' >> ~/.bashrc && \
-    echo 'if [ -d "/home/developer/ansible-projekte" ]; then' >> ~/.bashrc && \
-    echo '    cd /home/developer/ansible-projekte' >> ~/.bashrc && \
-    echo 'fi' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Container-Info anzeigen (nur bei interaktiver Shell)' >> ~/.bashrc && \
-    echo 'if [[ $- == *i* ]] && [ -f "/home/developer/container-info.sh" ]; then' >> ~/.bashrc && \
-    echo '    /home/developer/container-info.sh' >> ~/.bashrc && \
-    echo 'fi' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Nützliche Aliase' >> ~/.bashrc && \
-    echo 'alias ll="ls -la"' >> ~/.bashrc && \
-    echo 'alias la="ls -A"' >> ~/.bashrc && \
-    echo 'alias l="ls -CF"' >> ~/.bashrc && \
-    echo 'alias ap="ansible-playbook"' >> ~/.bashrc && \
-    echo 'alias av="ansible --version"' >> ~/.bashrc && \
-    echo 'alias ac="ansible-config"' >> ~/.bashrc && \
-    echo 'alias ag="ansible-galaxy"' >> ~/.bashrc && \
-    echo 'alias al="ansible-lint"' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Ansible-spezifische Umgebungsvariablen' >> ~/.bashrc && \
-    echo 'export ANSIBLE_CONFIG=~/.ansible/ansible.cfg' >> ~/.bashrc && \
-    echo 'export ANSIBLE_HOST_KEY_CHECKING=False' >> ~/.bashrc && \
-    echo 'export ANSIBLE_STDOUT_CALLBACK=yaml' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Hilfe-Funktion' >> ~/.bashrc && \
-    echo 'ansible-help() {' >> ~/.bashrc && \
-    echo '    echo "=== Ansible Container Hilfe ==="' >> ~/.bashrc && \
-    echo '    echo "Befehle:"' >> ~/.bashrc && \
-    echo '    echo "  av           - Ansible Version"' >> ~/.bashrc && \
-    echo '    echo "  ap <file>    - Playbook ausführen"' >> ~/.bashrc && \
-    echo '    echo "  al <file>    - Playbook linten"' >> ~/.bashrc && \
-    echo '    echo "  ag           - Ansible Galaxy"' >> ~/.bashrc && \
-    echo '    echo ""' >> ~/.bashrc && \
-    echo '    echo "Verzeichnisse:"' >> ~/.bashrc && \
-    echo '    echo "  ~/ansible-projekte/    - Projekte"' >> ~/.bashrc && \
-    echo '    echo "  ~/.ansible/            - Konfiguration"' >> ~/.bashrc && \
-    echo '    echo ""' >> ~/.bashrc && \
-    echo '    echo "Schnelltest: ap webserver-beispiel/playbooks/test.yml"' >> ~/.bashrc && \
-    echo '}' >> ~/.bashrc
-
-# Health-Check für Container erstellen
-RUN echo '#!/bin/bash' > /home/developer/health-check.sh && \
-    echo 'echo "=== Container Health Check ==="' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo '# Ansible verfügbar?' >> /home/developer/health-check.sh && \
-    echo 'if ansible --version >/dev/null 2>&1; then' >> /home/developer/health-check.sh && \
-    echo '    echo "✅ Ansible verfügbar"' >> /home/developer/health-check.sh && \
-    echo 'else' >> /home/developer/health-check.sh && \
-    echo '    echo "❌ Ansible nicht verfügbar"' >> /home/developer/health-check.sh && \
-    echo '    exit 1' >> /home/developer/health-check.sh && \
-    echo 'fi' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo '# Python-Module verfügbar?' >> /home/developer/health-check.sh && \
-    echo 'python -c "import ansible, jinja2, paramiko, yaml, cryptography" 2>/dev/null' >> /home/developer/health-check.sh && \
-    echo 'if [ $? -eq 0 ]; then' >> /home/developer/health-check.sh && \
-    echo '    echo "✅ Python-Module verfügbar"' >> /home/developer/health-check.sh && \
-    echo 'else' >> /home/developer/health-check.sh && \
-    echo '    echo "❌ Python-Module fehlen"' >> /home/developer/health-check.sh && \
-    echo '    exit 1' >> /home/developer/health-check.sh && \
-    echo 'fi' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo '# Test-Playbook verfügbar?' >> /home/developer/health-check.sh && \
-    echo 'if [ -f "ansible-projekte/webserver-beispiel/playbooks/test.yml" ]; then' >> /home/developer/health-check.sh && \
-    echo '    echo "✅ Test-Playbook verfügbar"' >> /home/developer/health-check.sh && \
-    echo 'else' >> /home/developer/health-check.sh && \
-    echo '    echo "❌ Test-Playbook fehlt"' >> /home/developer/health-check.sh && \
-    echo '    exit 1' >> /home/developer/health-check.sh && \
-    echo 'fi' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo 'echo "✅ Container ist gesund und einsatzbereit!"' >> /home/developer/health-check.sh && \
-    chmod +x /home/developer/health-check.sh
-
-CMD ["/bin/bash"]
-EOF
-    
-    # Container bauen (kann etwas dauern)
-    log_info "🔨 Baue optimiertes Ansible-Image (dauert ca. 2-3 Minuten)..."
-    log_info "💡 Hinweis: pip-Warnungen werden automatisch unterdrückt"
-    log_info "⚙️  Docker-Modus: $DOCKER_CMD"
-    
-    # Build-Logs in temporäre Datei umleiten für bessere Diagnose
-    local build_log="/tmp/docker-build-$(date +%s).log"
-    
-    if $DOCKER_CMD build -t ansible-dev-optimized "$setup_dir/" > "$build_log" 2>&1; then
-        log_success "✅ Docker-Image erfolgreich erstellt!"
-        
-        # Kurze Build-Zusammenfassung anzeigen
-        if grep -q "pip install" "$build_log"; then
-            log_info "📦 Python-Module erfolgreich installiert (Warnungen unterdrückt)"
-        fi
-        
-        if grep -q "Successfully tagged" "$build_log"; then
-            log_info "🏷️  Image-Tag: ansible-dev-optimized"
-        fi
-    else
-        log_error "❌ Docker-Image Build fehlgeschlagen"
-        echo
-        log_info "=== Build-Fehler-Diagnose ==="
-        
-        # Spezifische Fehler analysieren
-        if grep -q "permission denied" "$build_log"; then
-            log_error "Berechtigungsfehler detected:"
-            echo "Lösung: Versuche mit sudo-Docker..."
-            if [ "$DOCKER_CMD" != "sudo docker" ]; then
-                log_info "Versuche Build mit sudo..."
-                if sudo docker build -t ansible-dev-optimized "$setup_dir/" > "$build_log" 2>&1; then
-                    log_success "✅ Build mit sudo erfolgreich!"
-                    DOCKER_CMD="sudo docker"
-                else
-                    log_error "Auch sudo-Build fehlgeschlagen"
-                    tail -15 "$build_log"
-                    rm -rf "$setup_dir"
-                    return 1
-                fi
-            fi
-        elif grep -q "network" "$build_log"; then
-            log_error "Netzwerk-Fehler detected:"
-            echo "Lösung: Prüfe Internetverbindung und Docker-Netzwerk"
-            echo "        docker network ls"
-            echo "        systemctl restart docker"
-        elif grep -q "space" "$build_log"; then
-            log_error "Speicherplatz-Fehler detected:"
-            echo "Lösung: Prüfe verfügbaren Speicherplatz mit 'df -h'"
-            echo "        docker system prune -a"
-        else
-            log_error "Unbekannter Build-Fehler"
-        fi
-        
-        if grep -q "pip.*WARNING" "$build_log"; then
-            log_warning "pip-Warnungen gefunden (diese sollten unterdrückt werden):"
-            grep "WARNING" "$build_log" | head -3
-        fi
-        
-        echo
-        log_info "🔍 Letzte 15 Build-Log-Zeilen:"
-        tail -15 "$build_log"
-        echo
-        log_info "📄 Vollständige Build-Logs: $build_log"
-        
-        # Cleanup bei Fehler
-        rm -rf "$setup_dir"
-        return 1
-    fi
-    
-    # Erfolgreiche Build-Logs löschen (um Speicher zu sparen)
-    rm -f "$build_log"
-    
-    # Container starten
-    local ssh_port=$((2280 + $(date +%V)))  # Port 2281-2333 basierend auf KW
-    log_info "🚀 Starte Container '$container_name'..."
-    $DOCKER_CMD run -d \
-        --name "$container_name" \
-        --hostname "ansible-$(date +%yKW%V)" \
-        -p ${ssh_port}:22 \
-        -v "${container_name}-projects":/home/developer/ansible-projekte \
-        -v "${container_name}-ssh":/home/developer/.ssh \
-        -v "${container_name}-home":/home/developer/Documents \
-        --privileged \
-        ansible-dev-optimized \
-        /bin/bash -c "sudo /usr/sbin/sshd -D & tail -f /dev/null"
-    
-    sleep 5
-    
-    # SSH-Schlüssel kopieren falls vorhanden
-    if [ -f ~/.ssh/id_rsa.pub ]; then
-        log_info "📋 Kopiere SSH-Schlüssel..."
-        $DOCKER_CMD exec "$container_name" mkdir -p /home/developer/.ssh
-        $DOCKER_CMD cp ~/.ssh/id_rsa.pub "$container_name:/home/developer/.ssh/authorized_keys"
-        $DOCKER_CMD exec "$container_name" chown -R developer:developer /home/developer/.ssh
-        $DOCKER_CMD exec "$container_name" chmod 700 /home/developer/.ssh
-        $DOCKER_CMD exec "$container_name" chmod 600 /home/developer/.ssh/authorized_keys
-    fi
-    
-    # Script in Container kopieren
-    $DOCKER_CMD cp "$0" "$container_name:/home/developer/installer.sh"
-    $DOCKER_CMD exec "$container_name" chown developer:developer /home/developer/installer.sh
-    $DOCKER_CMD exec "$container_name" chmod +x /home/developer/installer.sh
-    
-    # Login-Script erstellen falls nicht vorhanden
-    create_login_script
-    
-    # Cleanup
-    rm -rf "$setup_dir"
-    
-    # Erfolg melden
-    log_success "🎉 Container '$container_name' erfolgreich erstellt und Ansible vollständig installiert!"
+    echo -e "${CYAN}Verwaltungsoptionen:${NC}"
+    echo "1) 🗑️  Analytics-Daten löschen (komplett)"
+    echo "2) 🧹 Alte Einträge bereinigen (>30 Tage)"
+    echo "3) 📤 Daten exportieren vor Bereinigung"
+    echo "4) 📋 Detaillierte Datei-Analyse"
+    echo "5) 🔄 Analytics-System zurücksetzen"
+    echo "6) 📊 Statistiken neu berechnen"
+    echo "7) 🔙 Zurück zum Analytics-Menü"
     
     echo
-    log_info "=== Container-Informationen ==="
-    echo "• Name: $container_name"
-    echo "• SSH-Port: $ssh_port"
-    echo "• Hostname: ansible-$(date +%yKW%V)"
-    echo "• User: developer / Password: developer"
-    echo "• Docker-Modus: $DOCKER_CMD"
-    echo "• Persistente Volumes für Projekte und SSH"
-    echo
+    read -p "Option wählen [1-7]: " manage_choice
     
-    log_info "=== Zugriff auf Container ==="
-    echo "1) Login-Script: ./login.sh"
-    echo "2) Interaktive Shell: $DOCKER_CMD exec -it $container_name /bin/bash"
-    echo "3) SSH-Zugang: ssh developer@localhost -p $ssh_port"
-    echo "4) Direkter Test: $DOCKER_CMD exec $container_name ansible --version"
-    echo
-    
-    # Sofortiger Test und Health-Check
-    log_info "🧪 Führe Container-Health-Check aus..."
-    if $DOCKER_CMD exec "$container_name" /home/developer/health-check.sh; then
-        log_success "✅ Health-Check erfolgreich!"
-    else
-        log_warning "⚠️  Health-Check hatte Probleme"
-    fi
-    
-    echo
-    log_info "🚀 Führe erweitertes Ansible-Test aus..."
-    if $DOCKER_CMD exec "$container_name" /bin/bash -c "
-        cd /home/developer/ansible-projekte/webserver-beispiel && 
-        echo '=== Ansible Test Ausführung ===' &&
-        ansible-playbook playbooks/test.yml --check --diff &&
-        echo &&
-        echo '=== Echter Test (ohne --check) ===' &&
-        ansible-playbook playbooks/test.yml
-    "; then
-        log_success "✅ Ansible-Test komplett erfolgreich!"
-        
-        # Test-Datei prüfen
-        if $DOCKER_CMD exec "$container_name" test -f /tmp/ansible-test-success.txt; then
-            log_success "✅ Test-Datei wurde erfolgreich erstellt"
-            log_info "📄 Inhalt der Test-Datei:"
-            $DOCKER_CMD exec "$container_name" cat /tmp/ansible-test-success.txt | sed 's/^/    /'
-        fi
-    else
-        log_warning "⚠️  Ansible-Test hatte Probleme, Container läuft aber"
-        
-        echo
-        log_info "🔍 Diagnose-Informationen:"
-        $DOCKER_CMD exec "$container_name" /bin/bash -c "
-            echo 'Ansible-Version:' && ansible --version | head -1
-            echo 'Python-Version:' && python --version
-            echo 'Verfügbare Module:' && python -c 'import sys; print(sys.path)'
-        " || log_warning "Diagnose fehlgeschlagen"
-    fi
-    
-    echo
-    read -p "Möchtest du eine interaktive Shell im Container starten? (Y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        log_info "Starte interaktive Shell..."
-        $DOCKER_CMD exec -it "$container_name" /bin/bash
-    else
-        echo
-        log_success "🎉 Container erfolgreich erstellt!"
-        echo
-        log_info "🚀 Schneller Zugang zum Container:"
-        echo "• ./login.sh          # Interaktives Login-Menü"
-        echo "• ./login.sh shell    # Direkte Docker-Shell"
-        echo "• ./login.sh ssh      # SSH-Verbindung"
-        echo
-        log_info "📋 Container-Details:"
-        echo "• Name: $container_name"
-        echo "• SSH: ssh developer@localhost -p $ssh_port"
-        echo "• Password: developer"
-    fi
-    
-    return 0
-}
-    
-    # Prüfen ob Container bereits existiert
-    if $DOCKER_CMD ps -a --format "{{.Names}}" | grep -q "^${container_name}$"; then
-        log_warning "Container '$container_name' existiert bereits!"
-        echo
-        echo "Optionen:"
-        echo "1) Bestehenden Container verwenden"
-        echo "2) Container neu erstellen (Daten gehen verloren)"
-        echo "3) Abbrechen"
-        
-        read -p "Wähle [1-3]: " -n 1 -r
-        echo
-        
-        case $REPLY in
-            1)
-                log_info "Verwende bestehenden Container..."
-                if [ "$($DOCKER_CMD inspect -f '{{.State.Running}}' "$container_name")" != "true" ]; then
-                    $DOCKER_CMD start "$container_name"
-                fi
-                
-                log_info "Verbinde mit Container für Ansible-Check..."
-                $DOCKER_CMD exec -it "$container_name" /bin/bash -c "
-                    echo '=== Ansible Status ==='
-                    if command -v ansible >/dev/null 2>&1; then
-                        echo '✅ Ansible ist installiert:'
-                        ansible --version
-                        echo
-                        echo '📁 Verfügbare Projekte:'
-                        ls -la /home/developer/ansible-projekte/ 2>/dev/null || echo 'Keine Projekte gefunden'
-                    else
-                        echo '❌ Ansible ist nicht installiert'
-                        echo 'Führe Installation aus...'
-                        /home/developer/ansible.sh <<< '2'
-                    fi
-                    echo
-                    echo 'Drücke Enter für interaktive Shell...'
-                    read
-                    exec /bin/bash
-                "
-                return 0
-                ;;
-            2)
-                log_info "Lösche bestehenden Container..."
-                $DOCKER_CMD rm -f "$container_name" 2>/dev/null || true
-                ;;
-            3)
-                log_info "Abgebrochen"
-                return 0
-                ;;
-            *)
-                log_error "Ungültige Auswahl"
-                return 1
-                ;;
-        esac
-    fi
-    
-    # Dockerfile für optimierte Installation erstellen
-    local setup_dir="/tmp/ansible-container-$(date +%s)"
-    mkdir -p "$setup_dir"
-    
-    log_info "Erstelle optimiertes Docker-Image..."
-    
-    cat > "$setup_dir/Dockerfile" << 'EOF'
-FROM archlinux:latest
-
-# System update und Basis-Pakete
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm \
-        base-devel \
-        sudo \
-        git \
-        curl \
-        wget \
-        vim \
-        nano \
-        openssh \
-        python \
-        python-pip \
-        python-virtualenv \
-        ansible \
-        docker \
-        yamllint \
-        tree \
-        htop \
-        unzip \
-        jq && \
-    pacman -Scc --noconfirm
-
-# Benutzer erstellen
-RUN useradd -m -G wheel -s /bin/bash developer && \
-    echo 'developer:developer' | chpasswd && \
-    echo '%wheel ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# SSH-Server konfigurieren
-RUN ssh-keygen -A && \
-    mkdir -p /run/sshd && \
-    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
-    echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
-
-# Python-Module als root installieren (für System-weite Verfügbarkeit)
-# Mit expliziter root-user-action um Warnung zu unterdrücken
-RUN pip install --root-user-action=ignore --break-system-packages \
-        jinja2 \
-        paramiko \
-        PyYAML \
-        cryptography \
-        ansible-lint \
-        molecule[docker] \
-        --no-warn-script-location && \
-    echo "# Python-Module erfolgreich installiert" > /tmp/pip-install.log
-
-# Wechsel zu developer user für weitere Setup-Schritte
-USER developer
-WORKDIR /home/developer
-
-# Python Virtual Environment für User (optional für zusätzliche Module)
-RUN python -m venv ~/.ansible-venv && \
-    echo "source ~/.ansible-venv/bin/activate" >> ~/.bashrc && \
-    echo "export ANSIBLE_PYTHON_INTERPRETER=~/.ansible-venv/bin/python" >> ~/.bashrc
-
-# Ansible-Konfiguration
-RUN mkdir -p /home/developer/{ansible-projekte,Downloads,Documents,.ansible,.ssh} && \
-    echo '[defaults]' > ~/.ansible/ansible.cfg && \
-    echo 'host_key_checking = False' >> ~/.ansible/ansible.cfg && \
-    echo 'inventory = ./inventory/hosts.yml' >> ~/.ansible/ansible.cfg && \
-    echo 'remote_user = developer' >> ~/.ansible/ansible.cfg && \
-    echo 'stdout_callback = yaml' >> ~/.ansible/ansible.cfg && \
-    echo 'retry_files_enabled = False' >> ~/.ansible/ansible.cfg && \
-    echo 'gathering = smart' >> ~/.ansible/ansible.cfg && \
-    echo 'fact_caching = memory' >> ~/.ansible/ansible.cfg && \
-    echo '' >> ~/.ansible/ansible.cfg && \
-    echo '[privilege_escalation]' >> ~/.ansible/ansible.cfg && \
-    echo 'become = True' >> ~/.ansible/ansible.cfg && \
-    echo 'become_method = sudo' >> ~/.ansible/ansible.cfg && \
-    echo 'become_ask_pass = False' >> ~/.ansible/ansible.cfg && \
-    echo '' >> ~/.ansible/ansible.cfg && \
-    echo '[ssh_connection]' >> ~/.ansible/ansible.cfg && \
-    echo 'ssh_args = -o ControlMaster=auto -o ControlPersist=60s' >> ~/.ansible/ansible.cfg && \
-    echo 'pipelining = True' >> ~/.ansible/ansible.cfg
-
-# Beispiel-Projekt erstellen
-RUN mkdir -p ansible-projekte/webserver-beispiel/{inventory,playbooks,templates,files,group_vars,host_vars} && \
-    echo 'all:' > ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '  children:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '    webservers:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '      hosts:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '        localhost:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '          ansible_connection: local' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '      vars:' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml && \
-    echo '        ansible_python_interpreter: /usr/bin/python' >> ansible-projekte/webserver-beispiel/inventory/hosts.yml
-
-# Erweiterte Test-Playbooks erstellen
-RUN echo '---' > ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '- name: Ansible System Test' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  hosts: localhost' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  connection: local' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  gather_facts: yes' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '  tasks:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '    - name: Container-Info anzeigen' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '      debug:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        msg: |' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          🚀 Ansible läuft perfekt im Container!' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Container: {{ ansible_hostname }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Python: {{ ansible_python_version }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Ansible: {{ ansible_version.full }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '    - name: Temp-Datei erstellen' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '      copy:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        content: |' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Ansible Test erfolgreich!' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Erstellt am: {{ ansible_date_time.iso8601 }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '          Container: {{ ansible_hostname }}' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        dest: /tmp/ansible-test-success.txt' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        mode: "0644"' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '    - name: Test-Status bestätigen' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '      debug:' >> ansible-projekte/webserver-beispiel/playbooks/test.yml && \
-    echo '        msg: "✅ Alle Tests erfolgreich! Datei erstellt: /tmp/ansible-test-success.txt"' >> ansible-projekte/webserver-beispiel/playbooks/test.yml
-
-# Erweiterte Container-Info mit Fehlerbehandlung
-RUN echo '#!/bin/bash' > /home/developer/container-info.sh && \
-    echo 'set -e' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo 'echo "=== 🐳 Ansible Development Container ==="' >> /home/developer/container-info.sh && \
-    echo 'echo "Container: $(hostname)"' >> /home/developer/container-info.sh && \
-    echo 'echo "Benutzer: $(whoami)"' >> /home/developer/container-info.sh && \
-    echo 'echo "Datum: $(date)"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Ansible-Version prüfen' >> /home/developer/container-info.sh && \
-    echo 'if command -v ansible >/dev/null 2>&1; then' >> /home/developer/container-info.sh && \
-    echo '    echo "✅ Ansible: $(ansible --version | head -1)"' >> /home/developer/container-info.sh && \
-    echo 'else' >> /home/developer/container-info.sh && \
-    echo '    echo "❌ Ansible nicht gefunden"' >> /home/developer/container-info.sh && \
-    echo 'fi' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Python-Version prüfen' >> /home/developer/container-info.sh && \
-    echo 'if command -v python >/dev/null 2>&1; then' >> /home/developer/container-info.sh && \
-    echo '    echo "✅ Python: $(python --version)"' >> /home/developer/container-info.sh && \
-    echo 'else' >> /home/developer/container-info.sh && \
-    echo '    echo "❌ Python nicht gefunden"' >> /home/developer/container-info.sh && \
-    echo 'fi' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Python-Module prüfen' >> /home/developer/container-info.sh && \
-    echo 'echo "🐍 Python-Module:"' >> /home/developer/container-info.sh && \
-    echo 'for module in jinja2 paramiko yaml cryptography; do' >> /home/developer/container-info.sh && \
-    echo '    if python -c "import $module" 2>/dev/null; then' >> /home/developer/container-info.sh && \
-    echo '        echo "  ✅ $module"' >> /home/developer/container-info.sh && \
-    echo '    else' >> /home/developer/container-info.sh && \
-    echo '        echo "  ❌ $module"' >> /home/developer/container-info.sh && \
-    echo '    fi' >> /home/developer/container-info.sh && \
-    echo 'done' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo 'echo "📁 Arbeitsverzeichnis: $(pwd)"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo '# Projekte anzeigen' >> /home/developer/container-info.sh && \
-    echo 'if [ -d ansible-projekte ]; then' >> /home/developer/container-info.sh && \
-    echo '    echo "📁 Verfügbare Projekte:"' >> /home/developer/container-info.sh && \
-    echo '    ls -la ansible-projekte/ 2>/dev/null || echo "  Keine Projekte gefunden"' >> /home/developer/container-info.sh && \
-    echo 'else' >> /home/developer/container-info.sh && \
-    echo '    echo "📁 Projekte-Verzeichnis nicht gefunden"' >> /home/developer/container-info.sh && \
-    echo 'fi' >> /home/developer/container-info.sh && \
-    echo '' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo 'echo "🚀 Schnellstart:"' >> /home/developer/container-info.sh && \
-    echo 'echo "  cd ansible-projekte/webserver-beispiel"' >> /home/developer/container-info.sh && \
-    echo 'echo "  ansible-playbook playbooks/test.yml"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    echo 'echo "📚 Verfügbare Befehle:"' >> /home/developer/container-info.sh && \
-    echo 'echo "  av  - ansible --version"' >> /home/developer/container-info.sh && \
-    echo 'echo "  ap  - ansible-playbook"' >> /home/developer/container-info.sh && \
-    echo 'echo "  ll  - ls -la"' >> /home/developer/container-info.sh && \
-    echo 'echo' >> /home/developer/container-info.sh && \
-    chmod +x /home/developer/container-info.sh
-
-# Verbesserte Bashrc mit Fehlerbehandlung
-RUN echo '# Ansible Container Bashrc' >> ~/.bashrc && \
-    echo 'export PS1="\[\033[0;32m\]\u@\h-ansible\[\033[00m\]:\[\033[0;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Wechsel zu Projekt-Verzeichnis' >> ~/.bashrc && \
-    echo 'if [ -d "/home/developer/ansible-projekte" ]; then' >> ~/.bashrc && \
-    echo '    cd /home/developer/ansible-projekte' >> ~/.bashrc && \
-    echo 'fi' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Container-Info anzeigen (nur bei interaktiver Shell)' >> ~/.bashrc && \
-    echo 'if [[ $- == *i* ]] && [ -f "/home/developer/container-info.sh" ]; then' >> ~/.bashrc && \
-    echo '    /home/developer/container-info.sh' >> ~/.bashrc && \
-    echo 'fi' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Nützliche Aliase' >> ~/.bashrc && \
-    echo 'alias ll="ls -la"' >> ~/.bashrc && \
-    echo 'alias la="ls -A"' >> ~/.bashrc && \
-    echo 'alias l="ls -CF"' >> ~/.bashrc && \
-    echo 'alias ap="ansible-playbook"' >> ~/.bashrc && \
-    echo 'alias av="ansible --version"' >> ~/.bashrc && \
-    echo 'alias ac="ansible-config"' >> ~/.bashrc && \
-    echo 'alias ag="ansible-galaxy"' >> ~/.bashrc && \
-    echo 'alias al="ansible-lint"' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Ansible-spezifische Umgebungsvariablen' >> ~/.bashrc && \
-    echo 'export ANSIBLE_CONFIG=~/.ansible/ansible.cfg' >> ~/.bashrc && \
-    echo 'export ANSIBLE_HOST_KEY_CHECKING=False' >> ~/.bashrc && \
-    echo 'export ANSIBLE_STDOUT_CALLBACK=yaml' >> ~/.bashrc && \
-    echo '' >> ~/.bashrc && \
-    echo '# Hilfe-Funktion' >> ~/.bashrc && \
-    echo 'ansible-help() {' >> ~/.bashrc && \
-    echo '    echo "=== Ansible Container Hilfe ==="' >> ~/.bashrc && \
-    echo '    echo "Befehle:"' >> ~/.bashrc && \
-    echo '    echo "  av           - Ansible Version"' >> ~/.bashrc && \
-    echo '    echo "  ap <file>    - Playbook ausführen"' >> ~/.bashrc && \
-    echo '    echo "  al <file>    - Playbook linten"' >> ~/.bashrc && \
-    echo '    echo "  ag           - Ansible Galaxy"' >> ~/.bashrc && \
-    echo '    echo ""' >> ~/.bashrc && \
-    echo '    echo "Verzeichnisse:"' >> ~/.bashrc && \
-    echo '    echo "  ~/ansible-projekte/    - Projekte"' >> ~/.bashrc && \
-    echo '    echo "  ~/.ansible/            - Konfiguration"' >> ~/.bashrc && \
-    echo '    echo ""' >> ~/.bashrc && \
-    echo '    echo "Schnelltest: ap webserver-beispiel/playbooks/test.yml"' >> ~/.bashrc && \
-    echo '}' >> ~/.bashrc
-
-# Health-Check für Container erstellen
-RUN echo '#!/bin/bash' > /home/developer/health-check.sh && \
-    echo 'echo "=== Container Health Check ==="' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo '# Ansible verfügbar?' >> /home/developer/health-check.sh && \
-    echo 'if ansible --version >/dev/null 2>&1; then' >> /home/developer/health-check.sh && \
-    echo '    echo "✅ Ansible verfügbar"' >> /home/developer/health-check.sh && \
-    echo 'else' >> /home/developer/health-check.sh && \
-    echo '    echo "❌ Ansible nicht verfügbar"' >> /home/developer/health-check.sh && \
-    echo '    exit 1' >> /home/developer/health-check.sh && \
-    echo 'fi' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo '# Python-Module verfügbar?' >> /home/developer/health-check.sh && \
-    echo 'python -c "import ansible, jinja2, paramiko, yaml, cryptography" 2>/dev/null' >> /home/developer/health-check.sh && \
-    echo 'if [ $? -eq 0 ]; then' >> /home/developer/health-check.sh && \
-    echo '    echo "✅ Python-Module verfügbar"' >> /home/developer/health-check.sh && \
-    echo 'else' >> /home/developer/health-check.sh && \
-    echo '    echo "❌ Python-Module fehlen"' >> /home/developer/health-check.sh && \
-    echo '    exit 1' >> /home/developer/health-check.sh && \
-    echo 'fi' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo '# Test-Playbook verfügbar?' >> /home/developer/health-check.sh && \
-    echo 'if [ -f "ansible-projekte/webserver-beispiel/playbooks/test.yml" ]; then' >> /home/developer/health-check.sh && \
-    echo '    echo "✅ Test-Playbook verfügbar"' >> /home/developer/health-check.sh && \
-    echo 'else' >> /home/developer/health-check.sh && \
-    echo '    echo "❌ Test-Playbook fehlt"' >> /home/developer/health-check.sh && \
-    echo '    exit 1' >> /home/developer/health-check.sh && \
-    echo 'fi' >> /home/developer/health-check.sh && \
-    echo '' >> /home/developer/health-check.sh && \
-    echo 'echo "✅ Container ist gesund und einsatzbereit!"' >> /home/developer/health-check.sh && \
-    chmod +x /home/developer/health-check.sh
-
-CMD ["/bin/bash"]
-EOF
-    
-    # Container bauen (kann etwas dauern)
-    log_info "🔨 Baue optimiertes Ansible-Image (dauert ca. 2-3 Minuten)..."
-    log_info "💡 Hinweis: pip-Warnungen werden automatisch unterdrückt"
-    
-    # Build-Logs in temporäre Datei umleiten für bessere Diagnose
-    local build_log="/tmp/docker-build-$(date +%s).log"
-    
-    if $DOCKER_CMD build -t ansible-dev-optimized "$setup_dir/" > "$build_log" 2>&1; then
-        log_success "✅ Docker-Image erfolgreich erstellt!"
-        
-        # Kurze Build-Zusammenfassung anzeigen
-        if grep -q "pip install" "$build_log"; then
-            log_info "📦 Python-Module erfolgreich installiert (Warnungen unterdrückt)"
-        fi
-        
-        if grep -q "Successfully tagged" "$build_log"; then
-            log_info "🏷️  Image-Tag: ansible-dev-optimized"
-        fi
-    else
-        log_error "❌ Docker-Image Build fehlgeschlagen"
-        echo
-        log_info "=== Build-Fehler-Diagnose ==="
-        
-        # Spezifische Fehler analysieren
-        if grep -q "permission denied" "$build_log"; then
-            log_error "Berechtigungsfehler detected:"
-            echo "Lösung: Führe das Script als normaler User aus (nicht root)"
-            echo "        Stelle sicher, dass Docker-Berechtigungen korrekt sind"
-        fi
-        
-        if grep -q "network" "$build_log"; then
-            log_error "Netzwerk-Fehler detected:"
-            echo "Lösung: Prüfe Internetverbindung und Docker-Netzwerk"
-        fi
-        
-        if grep -q "space" "$build_log"; then
-            log_error "Speicherplatz-Fehler detected:"
-            echo "Lösung: Prüfe verfügbaren Speicherplatz mit 'df -h'"
-        fi
-        
-        if grep -q "pip.*WARNING" "$build_log"; then
-            log_warning "pip-Warnungen gefunden (diese sind normal und werden korrigiert):"
-            grep "WARNING" "$build_log" | head -3
-        fi
-        
-        echo
-        log_info "🔍 Letzte 15 Build-Log-Zeilen:"
-        tail -15 "$build_log"
-        echo
-        log_info "📄 Vollständige Build-Logs: $build_log"
-        
-        # Cleanup bei Fehler
-        rm -rf "$setup_dir"
-        return 1
-    fi
-    
-    # Erfolgreiche Build-Logs löschen (um Speicher zu sparen)
-    rm -f "$build_log"
-    
-    # Container starten
-    local ssh_port=$((2280 + $(date +%V)))  # Port 2281-2333 basierend auf KW
-    log_info "🚀 Starte Container '$container_name'..."
-    $DOCKER_CMD run -d \
-        --name "$container_name" \
-        --hostname "ansible-$(date +%yKW%V)" \
-        -p ${ssh_port}:22 \
-        -v "${container_name}-projects":/home/developer/ansible-projekte \
-        -v "${container_name}-ssh":/home/developer/.ssh \
-        -v "${container_name}-home":/home/developer/Documents \
-        --privileged \
-        ansible-dev-optimized \
-        /bin/bash -c "sudo /usr/sbin/sshd -D & tail -f /dev/null"
-    
-    sleep 5
-    
-    # SSH-Schlüssel kopieren falls vorhanden
-    if [ -f ~/.ssh/id_rsa.pub ]; then
-        log_info "📋 Kopiere SSH-Schlüssel..."
-        $DOCKER_CMD exec "$container_name" mkdir -p /home/developer/.ssh
-        $DOCKER_CMD cp ~/.ssh/id_rsa.pub "$container_name:/home/developer/.ssh/authorized_keys"
-        $DOCKER_CMD exec "$container_name" chown -R developer:developer /home/developer/.ssh
-        $DOCKER_CMD exec "$container_name" chmod 700 /home/developer/.ssh
-        $DOCKER_CMD exec "$container_name" chmod 600 /home/developer/.ssh/authorized_keys
-    fi
-    
-    # Script in Container kopieren
-    $DOCKER_CMD cp "$0" "$container_name:/home/developer/installer.sh"
-    $DOCKER_CMD exec "$container_name" chown developer:developer /home/developer/installer.sh
-    $DOCKER_CMD exec "$container_name" chmod +x /home/developer/installer.sh
-    
-    # Login-Script erstellen falls nicht vorhanden
-    create_login_script
-    
-# Login-Script erstellen
-create_login_script() {
-    local login_script="./login.sh"
-    
-    # Prüfen ob bereits vorhanden
-    if [ -f "$login_script" ]; then
-        log_info "📝 Login-Script bereits vorhanden: $login_script"
-        return 0
-    fi
-    
-    log_info "📝 Erstelle Login-Script: $login_script"
-    
-    cat > "$login_script" << 'LOGINEOF'
-#!/bin/bash
-
-# =============================================================================
-# Ansible Container Login Helper
-# =============================================================================
-# Automatischer Login in Ansible-Container
-# Generiert von: ansible.sh
-# =============================================================================
-
-set -e
-
-# Farben für Output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-# Logging-Funktionen
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-# Banner
-show_banner() {
-    echo -e "${CYAN}"
-    cat << 'EOF'
-╔═══════════════════════════════════════════════════════════════╗
-║                   ANSIBLE CONTAINER LOGIN                    ║
-║                   Schneller Zugang zu Containern             ║
-╚═══════════════════════════════════════════════════════════════╝
-EOF
-    echo -e "${NC}"
-}
-
-# Aktuelle Kalenderwoche ermitteln
-get_current_container_name() {
-    echo "$(date +%yKW%V)-docker"
-}
-
-# Container-SSH-Port ermitteln
-get_container_ssh_port() {
-    local container_name=$1
-    if [[ $container_name =~ [0-9]{2}KW([0-9]+)-docker ]]; then
-        local week=${BASH_REMATCH[1]}
-        echo $((2280 + 10#$week))
-    else
-        echo "2222"
-    fi
-}
-
-# Quick-Login Funktionen
-quick_shell() {
-    local container=$(get_current_container_name)
-    log_info "Verbinde mit $container..."
-    
-    if [ "$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)" != "running" ]; then
-        log_info "Starte Container..."
-        docker start "$container" >/dev/null && sleep 2
-    fi
-    
-    docker exec -it "$container" /bin/bash
-}
-
-quick_ssh() {
-    local container=$(get_current_container_name)
-    local port=$(get_container_ssh_port "$container")
-    
-    log_info "SSH-Verbindung zu $container (Port: $port)"
-    log_info "User: developer | Password: developer"
-    
-    if [ "$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)" != "running" ]; then
-        docker start "$container" >/dev/null && sleep 3
-    fi
-    
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p "$port" developer@localhost
-}
-
-show_container_info() {
-    local container=$(get_current_container_name)
-    local status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
-    local port=$(get_container_ssh_port "$container")
-    
-    echo -e "${BLUE}=== Aktueller Container ===${NC}"
-    echo "📋 Name: $container"
-    echo "🔌 Status: $([ "$status" = "running" ] && echo "🟢 Läuft" || echo "🔴 Gestoppt")"
-    echo "🌐 SSH-Port: $port"
-    echo "👤 User: developer"
-    echo "🔑 Password: developer"
-    
-    if [ "$status" = "running" ]; then
-        local hostname=$(docker exec "$container" hostname 2>/dev/null || echo "unknown")
-        echo "🖥️  Hostname: $hostname"
-        
-        if docker exec "$container" command -v ansible >/dev/null 2>&1; then
-            local ansible_ver=$(docker exec "$container" ansible --version 2>/dev/null | head -1)
-            echo "⚙️  Ansible: $ansible_ver"
-        fi
-    fi
-}
-
-list_containers() {
-    echo "Verfügbare Container:"
-    docker ps -a --filter "name=-docker" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "Keine Container gefunden"
-}
-
-# Hauptmenü
-main_menu() {
-    show_banner
-    
-    while true; do
-        echo
-        show_container_info
-        echo
-        echo "Schnell-Zugang:"
-        echo "1) 🐚 Docker Shell (direkter Zugang)"
-        echo "2) 🌐 SSH-Login (Port: $(get_container_ssh_port $(get_current_container_name)))"
-        echo "3) 📋 Container-Informationen"
-        echo "4) 📊 Alle Container anzeigen"
-        echo "5) 🚀 Ansible-Test ausführen"
-        echo "6) 🔄 Container neustarten"
-        echo "7) ❌ Beenden"
-        echo
-        
-        read -p "Wähle Option [1-7]: " choice
-        
-        case $choice in
-            1) quick_shell ;;
-            2) quick_ssh ;;
-            3) show_container_info; read -p "Drücke Enter..." ;;
-            4) list_containers; read -p "Drücke Enter..." ;;
-            5) 
-                local container=$(get_current_container_name)
-                docker exec "$container" /bin/bash -c "
-                    cd /home/developer/ansible-projekte/webserver-beispiel && 
-                    ansible-playbook playbooks/test.yml
-                " 2>/dev/null || log_error "Test fehlgeschlagen"
-                read -p "Drücke Enter..."
-                ;;
-            6)
-                local container=$(get_current_container_name)
-                log_info "Starte $container neu..."
-                docker restart "$container" >/dev/null && log_success "Neustart erfolgreich"
-                ;;
-            7) exit 0 ;;
-            *) log_error "Ungültige Auswahl" ;;
-        esac
-    done
-}
-
-# Kommandozeilen-Parameter
-case "${1:-}" in
-    -h|--help)
-        echo "Ansible Container Login Helper"
-        echo "Verwendung:"
-        echo "  $0          Interaktives Menü"
-        echo "  $0 shell    Direkte Docker-Shell"
-        echo "  $0 ssh      SSH-Verbindung"
-        echo "  $0 info     Container-Info anzeigen"
-        echo "  $0 list     Alle Container auflisten"
-        exit 0
-        ;;
-    shell) quick_shell ;;
-    ssh) quick_ssh ;;
-    info) show_container_info ;;
-    list) list_containers ;;
-    *) main_menu ;;
-esac
-LOGINEOF
-
-    chmod +x "$login_script"
-    log_success "✅ Login-Script erstellt: $login_script"
-    
-    echo
-    log_info "🎯 Verwendung des Login-Scripts:"
-    echo "• Interaktiv: ./login.sh"
-    echo "• Schnell-Shell: ./login.sh shell"
-    echo "• SSH-Login: ./login.sh ssh"
-    echo "• Container-Info: ./login.sh info"
-}
-    
-    # Erfolg melden
-    log_success "🎉 Container '$container_name' erfolgreich erstellt und Ansible vollständig installiert!"
-    
-    echo
-    log_info "=== Container-Informationen ==="
-    echo "• Name: $container_name"
-    echo "• SSH-Port: $ssh_port"
-    echo "• Hostname: ansible-$(date +%yKW%V)"
-    echo "• User: developer / Password: developer"
-    echo "• Persistente Volumes für Projekte und SSH"
-    echo
-    
-    log_info "=== Zugriff auf Container ==="
-    echo "1) Interaktive Shell: $DOCKER_CMD exec -it $container_name /bin/bash"
-    echo "2) SSH-Zugang: ssh developer@localhost -p $ssh_port"
-    echo "3) Direkter Test: $DOCKER_CMD exec $container_name ansible --version"
-    echo
-    
-    # Sofortiger Test und Health-Check
-    log_info "🧪 Führe Container-Health-Check aus..."
-    if $DOCKER_CMD exec "$container_name" /home/developer/health-check.sh; then
-        log_success "✅ Health-Check erfolgreich!"
-    else
-        log_warning "⚠️  Health-Check hatte Probleme"
-    fi
-    
-    echo
-    log_info "🚀 Führe erweitertes Ansible-Test aus..."
-    if $DOCKER_CMD exec "$container_name" /bin/bash -c "
-        cd /home/developer/ansible-projekte/webserver-beispiel && 
-        echo '=== Ansible Test Ausführung ===' &&
-        ansible-playbook playbooks/test.yml --check --diff &&
-        echo &&
-        echo '=== Echter Test (ohne --check) ===' &&
-        ansible-playbook playbooks/test.yml
-    "; then
-        log_success "✅ Ansible-Test komplett erfolgreich!"
-        
-        # Test-Datei prüfen
-        if $DOCKER_CMD exec "$container_name" test -f /tmp/ansible-test-success.txt; then
-            log_success "✅ Test-Datei wurde erfolgreich erstellt"
-            log_info "📄 Inhalt der Test-Datei:"
-            $DOCKER_CMD exec "$container_name" cat /tmp/ansible-test-success.txt | sed 's/^/    /'
-        fi
-    else
-        log_warning "⚠️  Ansible-Test hatte Probleme, Container läuft aber"
-        
-        echo
-        log_info "🔍 Diagnose-Informationen:"
-        $DOCKER_CMD exec "$container_name" /bin/bash -c "
-            echo 'Ansible-Version:' && ansible --version | head -1
-            echo 'Python-Version:' && python --version
-            echo 'Verfügbare Module:' && python -c 'import sys; print(sys.path)'
-        " || log_warning "Diagnose fehlgeschlagen"
-    fi
-    
-    echo
-    read -p "Möchtest du eine interaktive Shell im Container starten? (Y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        log_info "Starte interaktive Shell..."
-        $DOCKER_CMD exec -it "$container_name" /bin/bash
-    else
-        echo
-        log_success "🎉 Container erfolgreich erstellt!"
-        echo
-        log_info "🚀 Schneller Zugang zum Container:"
-        echo "• ./login.sh          # Interaktives Login-Menü"
-        echo "• ./login.sh shell    # Direkte Docker-Shell"
-        echo "• ./login.sh ssh      # SSH-Verbindung"
-        echo
-        log_info "📋 Container-Details:"
-        echo "• Name: $container_name"
-        echo "• SSH: ssh developer@localhost -p $ssh_port"
-        echo "• Password: developer"
-    fi
-    
-    return 0
-}
-
-# Manjaro/Arch Container für Ansible-Installation starten
-run_in_docker_container() {
-    log_info "Bereite Docker-Container für Ansible-Installation vor..."
-    
-    # Docker prüfen
-    if ! ensure_docker; then
-        log_error "Docker-Setup fehlgeschlagen"
-        return 1
-    fi
-    
-    # Container-Name
-    local container_name="ansible-manjaro-dev"
-    local container_exists=false
-    
-    # Prüfen ob Container bereits existiert
-    if docker ps -a --format "table {{.Names}}" | grep -q "^${container_name}$"; then
-        container_exists=true
-        log_info "Container $container_name existiert bereits"
-        
-        echo "Was möchtest du tun?"
-        echo "1) Bestehenden Container verwenden"
-        echo "2) Container neu erstellen (Daten gehen verloren)"
-        echo "3) Abbrechen"
-        
-        read -p "Wähle [1-3]: " -n 1 -r
-        echo
-        
-        case $REPLY in
-            1)
-                log_info "Verwende bestehenden Container..."
-                ;;
-            2)
-                log_info "Lösche und erstelle Container neu..."
-                docker rm -f "$container_name" 2>/dev/null || true
-                container_exists=false
-                ;;
-            3)
-                log_info "Abgebrochen"
-                return 0
-                ;;
-            *)
-                log_error "Ungültige Auswahl"
-                return 1
-                ;;
-        esac
-    fi
-    
-    # Container erstellen falls nicht vorhanden
-    if [ "$container_exists" = false ]; then
-        log_info "Erstelle neuen Container mit Manjaro-ähnlichem Environment..."
-        
-        # Arbeitsverzeichnis erstellen
-        mkdir -p /tmp/ansible-container-setup
-        
-        # Dockerfile erstellen
-        cat > /tmp/ansible-container-setup/Dockerfile << 'EOF'
-FROM archlinux:latest
-
-# System aktualisieren und Basis-Pakete installieren
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm \
-        base-devel \
-        sudo \
-        git \
-        curl \
-        wget \
-        vim \
-        nano \
-        openssh \
-        python \
-        python-pip && \
-    pacman -Scc --noconfirm
-
-# Benutzer erstellen
-RUN useradd -m -G wheel -s /bin/bash developer && \
-    echo 'developer:developer' | chpasswd && \
-    echo '%wheel ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# SSH-Server konfigurieren
-RUN ssh-keygen -A && \
-    mkdir -p /run/sshd
-
-# Arbeitsverzeichnis
-WORKDIR /home/developer
-USER developer
-
-# Home-Verzeichnis setup
-RUN mkdir -p /home/developer/{Downloads,Documents,ansible-projekte}
-
-CMD ["/bin/bash"]
-EOF
-        
-        # Container bauen
-        log_info "Baue Docker-Image (das kann etwas dauern)..."
-        if ! docker build -t ansible-manjaro-dev /tmp/ansible-container-setup/; then
-            log_error "Docker-Image Build fehlgeschlagen"
-            return 1
-        fi
-        
-        # Container starten
-        log_info "Starte Container..."
-        docker run -d \
-            --name "$container_name" \
-            --hostname ansible-dev \
-            -p 2223:22 \
-            -v "$(pwd)":/host-scripts:ro \
-            -v ansible-projects:/home/developer/ansible-projekte \
-            -v ansible-ssh:/home/developer/.ssh \
-            --privileged \
-            ansible-manjaro-dev \
-            /bin/bash -c "sudo /usr/sbin/sshd -D & tail -f /dev/null"
-        
-        sleep 3
-        
-        # Script in Container kopieren
-        docker cp "$0" "$container_name:/home/developer/ansible.sh"
-        docker exec "$container_name" chown developer:developer /home/developer/ansible.sh
-        docker exec "$container_name" chmod +x /home/developer/ansible.sh
-        
-        log_success "Container '$container_name' wurde erstellt und gestartet"
-    else
-        # Bestehenden Container starten falls gestoppt
-        if [ "$(docker inspect -f '{{.State.Running}}' "$container_name")" != "true" ]; then
-            log_info "Starte bestehenden Container..."
-            docker start "$container_name"
-        fi
-    fi
-    
-    # Informationen anzeigen
-    echo
-    log_success "Docker-Container ist bereit!"
-    echo
-    log_info "Container-Informationen:"
-    echo "• Name: $container_name"
-    echo "• SSH-Port: 2223"
-    echo "• User: developer"
-    echo "• Password: developer"
-    echo
-    log_info "Verfügbare Aktionen:"
-    echo "1) Interaktive Shell starten"
-    echo "2) Ansible-Installation im Container ausführen"
-    echo "3) SSH-Zugang einrichten"
-    echo "4) Container-Status anzeigen"
-    echo "5) Zurück zum Hauptmenü"
-    echo
-    
-    while true; do
-        read -p "Wähle eine Aktion [1-5]: " action
-        
-        case $action in
-            1)
-                log_info "Starte interaktive Shell im Container..."
-                echo "Tipp: Führe './ansible.sh' aus, um Ansible zu installieren"
-                echo "Exit mit 'exit' oder Ctrl+D"
-                docker exec -it "$container_name" /bin/bash
-                ;;
-            2)
-                log_info "Führe Ansible-Installation im Container aus..."
-                echo
-                echo "Verfügbare Installationen:"
-                echo "1) Basis-Installation"
-                echo "2) Vollständige Installation"
-                echo "3) Minimale Installation"
-                
-                read -p "Wähle Installation [1-3]: " install_type
-                
-                case $install_type in
-                    1) docker exec -it "$container_name" /bin/bash -c "cd /home/developer && ./ansible.sh" ;;
-                    2) docker exec -it "$container_name" /bin/bash -c "cd /home/developer && echo '2' | ./ansible.sh" ;;
-                    3) docker exec -it "$container_name" /bin/bash -c "cd /home/developer && echo '3' | ./ansible.sh" ;;
-                    *) log_error "Ungültige Auswahl" ;;
-                esac
-                ;;
-            3)
-                log_info "SSH-Zugang zum Container:"
-                echo "ssh developer@localhost -p 2223"
-                echo "Password: developer"
-                
-                # SSH-Schlüssel kopieren falls vorhanden
-                if [ -f ~/.ssh/id_rsa.pub ]; then
-                    read -p "SSH-Schlüssel zum Container kopieren? (y/N): " -n 1 -r
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]]; then
-                        docker exec "$container_name" mkdir -p /home/developer/.ssh
-                        docker cp ~/.ssh/id_rsa.pub "$container_name:/home/developer/.ssh/authorized_keys"
-                        docker exec "$container_name" chown -R developer:developer /home/developer/.ssh
-                        docker exec "$container_name" chmod 700 /home/developer/.ssh
-                        docker exec "$container_name" chmod 600 /home/developer/.ssh/authorized_keys
-                        log_success "SSH-Schlüssel kopiert. Login ohne Passwort möglich."
-                    fi
-                fi
-                ;;
-            4)
-                log_info "Container-Status:"
-                docker ps --filter "name=$container_name" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-                echo
-                log_info "Container-Resourcen:"
-                docker stats "$container_name" --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"
-                ;;
-            5)
-                log_info "Zurück zum Hauptmenü..."
-                return 0
-                ;;
-            *)
-                log_error "Ungültige Auswahl [1-5]"
-                ;;
-        esac
-        
-        echo
-        log_info "Weitere Aktionen verfügbar..."
-    done
-}
-
-# Container cleanup-Funktion
-cleanup_containers() {
-    log_info "Container-Cleanup..."
-    
-    echo "Verfügbare Container:"
-    if ! list_ansible_containers; then
-        log_info "Keine Container zum Löschen gefunden"
-        return 0
-    fi
-    
-    echo
-    echo "Container-Engine wählen:"
-    echo "1) Docker-Container löschen"
-    echo "2) Podman-Container löschen"
-    echo "3) Alle Container (Docker + Podman) löschen"
-    echo "4) Abbrechen"
-    
-    read -p "Engine wählen [1-4]: " engine_choice
-    
-    case $engine_choice in
+    case $manage_choice in
         1)
-            cleanup_docker_containers
-            ;;
-        2)
-            cleanup_podman_containers
-            ;;
-        3)
-            cleanup_docker_containers
-            cleanup_podman_containers
-            ;;
-        4)
-            log_info "Abgebrochen"
-            ;;
-        *)
-            log_error "Ungültige Auswahl"
-            ;;
-    esac
-}
-
-# Docker-Container-Cleanup
-cleanup_docker_containers() {
-    if ! command -v docker >/dev/null 2>&1; then
-        log_info "Docker nicht verfügbar"
-        return 0
-    fi
-    
-    echo
-    echo "Docker-Container Optionen:"
-    echo "1) Alle Docker-Container löschen"
-    echo "2) Nur gestoppte Docker-Container löschen"
-    echo "3) Bestimmten Docker-Container löschen"
-    echo "4) Alte Docker-Container (>4 Wochen) löschen"
-    echo "5) Zurück"
-    
-    read -p "Wähle Option [1-5]: " choice
-    
-    case $choice in
-        1)
-            read -p "Wirklich ALLE Docker-Container löschen? (y/N): " -n 1 -r
+            echo
+            log_warning "ACHTUNG: Alle Analytics-Daten werden gelöscht!"
+            read -p "Wirklich ALLE Analytics-Daten löschen? (y/N): " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
-                docker ps -a --filter "name=-docker" --format "{{.Names}}" | xargs -r docker rm -f
-                docker ps -a --filter "name=ansible-" --format "{{.Names}}" | xargs -r docker rm -f
-                log_success "Alle Docker-Container gelöscht"
+                rm -rf "$ANALYTICS_DIR"
+                log_success "Analytics-Daten gelöscht"
+                init_analytics
             fi
             ;;
         2)
-            docker ps -a --filter "name=-docker" --filter "status=exited" --format "{{.Names}}" | xargs -r docker rm
-            docker ps -a --filter "name=ansible-" --filter "status=exited" --format "{{.Names}}" | xargs -r docker rm
-            log_success "Gestoppte Docker-Container gelöscht"
-            ;;
-        3)
-            read -p "Docker-Container-Name eingeben: " container_name
-            if [ -n "$container_name" ]; then
-                docker rm -f "$container_name" && log_success "Docker-Container '$container_name' gelöscht"
-            fi
-            ;;
-        4)
-            cleanup_old_containers  # Existing function for Docker
-            ;;
-        5)
-            return 0
-            ;;
-        *)
-            log_error "Ungültige Auswahl"
-            ;;
-    esac
-}
-
-# Podman-Container-Cleanup
-cleanup_podman_containers() {
-    if ! command -v podman >/dev/null 2>&1; then
-        log_info "Podman nicht verfügbar"
-        return 0
-    fi
-    
-    echo
-    echo "Podman-Container Optionen:"
-    echo "1) Alle Podman-Container löschen"
-    echo "2) Nur gestoppte Podman-Container löschen"
-    echo "3) Bestimmten Podman-Container löschen"
-    echo "4) Alte Podman-Container (>4 Wochen) löschen"
-    echo "5) Zurück"
-    
-    read -p "Wähle Option [1-5]: " choice
-    
-    case $choice in
-        1)
-            read -p "Wirklich ALLE Podman-Container löschen? (y/N): " -n 1 -r
             echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                podman ps -a --filter "name=ansible" --format "{{.Names}}" | xargs -r podman rm -f
-                log_success "Alle Podman-Container gelöscht"
+            log_info "Bereinige Einträge älter als 30 Tage..."
+            local cutoff_date=$(date -d '30 days ago' '+%Y-%m-%d')
+            
+            if [ -f "$PERFORMANCE_LOG" ]; then
+                local before_lines=$(wc -l < "$PERFORMANCE_LOG")
+                head -1 "$PERFORMANCE_LOG" > "${PERFORMANCE_LOG}.tmp"
+                awk -F',' -v cutoff="$cutoff_date" '$1 >= cutoff' "$PERFORMANCE_LOG" >> "${PERFORMANCE_LOG}.tmp"
+                mv "${PERFORMANCE_LOG}.tmp" "$PERFORMANCE_LOG"
+                local after_lines=$(wc -l < "$PERFORMANCE_LOG")
+                log_success "Performance-Log: $((before_lines - after_lines)) alte Einträge entfernt"
             fi
-            ;;
-        2)
-            podman ps -a --filter "name=ansible" --filter "status=exited" --format "{{.Names}}" | xargs -r podman rm
-            log_success "Gestoppte Podman-Container gelöscht"
+            
+            if [ -f "$HEALTH_LOG" ]; then
+                local before_lines=$(wc -l < "$HEALTH_LOG")
+                head -1 "$HEALTH_LOG" > "${HEALTH_LOG}.tmp"
+                awk -F',' -v cutoff="$cutoff_date" '$1 >= cutoff' "$HEALTH_LOG" >> "${HEALTH_LOG}.tmp"
+                mv "${HEALTH_LOG}.tmp" "$HEALTH_LOG"
+                local after_lines=$(wc -l < "$HEALTH_LOG")
+                log_success "Health-Log: $((before_lines - after_lines)) alte Einträge entfernt"
+            fi
             ;;
         3)
-            read -p "Podman-Container-Name eingeben: " container_name
-            if [ -n "$container_name" ]; then
-                podman rm -f "$container_name" && log_success "Podman-Container '$container_name' gelöscht"
-            fi
+            echo
+            log_info "Exportiere Analytics-Daten vor Bereinigung..."
+            export_analytics_report
+            return
             ;;
         4)
-            cleanup_old_podman_containers
+            echo
+            echo -e "${BLUE}=== DETAILLIERTE DATEI-ANALYSE ===${NC}"
+            
+            for log_file in "$PERFORMANCE_LOG" "$HEALTH_LOG"; do
+                if [ -f "$log_file" ]; then
+                    local filename=$(basename "$log_file")
+                    echo
+                    echo "📄 $filename:"
+                    echo "   Größe: $(du -h "$log_file" | cut -f1)"
+                    echo "   Zeilen: $(wc -l < "$log_file")"
+                    echo "   Erstellt: $(stat -c %y "$log_file" | cut -d' ' -f1)"
+                    echo "   Geändert: $(stat -c %z "$log_file" | cut -d' ' -f1)"
+                    
+                    if [ "$filename" = "performance.csv" ] && [ $(wc -l < "$log_file") -gt 1 ]; then
+                        echo "   Erster Eintrag: $(tail -n +2 "$log_file" | head -1 | cut -d',' -f1)"
+                        echo "   Letzter Eintrag: $(tail -1 "$log_file" | cut -d',' -f1)"
+                        echo "   Eindeutige Playbooks: $(tail -n +2 "$log_file" | awk -F',' '{print $2}' | sort -u | wc -l)"
+                    fi
+                fi
+            done
             ;;
         5)
-            return 0
-            ;;
-        *)
-            log_error "Ungültige Auswahl"
-            ;;
-    esac
-}
-
-# Alte Podman-Container löschen
-cleanup_old_podman_containers() {
-    log_info "Suche nach alten Podman-Containern (älter als 4 Wochen)..."
-    
-    local current_year=$(date +%y)
-    local current_week=$(date +%V)
-    local cutoff_week=$((current_week - 4))
-    
-    if [ $cutoff_week -le 0 ]; then
-        cutoff_week=$((52 + cutoff_week))
-        current_year=$((current_year - 1))
-        current_year=$(printf "%02d" $current_year)
-    fi
-    
-    local old_containers=$(podman ps -a --filter "name=ansible" --format "{{.Names}}" | while read container; do
-        if [[ $container =~ ([0-9]{2})KW([0-9]+)-docker ]]; then
-            local year=${BASH_REMATCH[1]}
-            local week=${BASH_REMATCH[2]}
-            
-            local full_year=$((2000 + 10#$year))
-            local current_full_year=$((2000 + 10#$current_year))
-            
-            if [ $full_year -lt $current_full_year ] || ([ $full_year -eq $current_full_year ] && [ $((10#$week)) -lt $cutoff_week ]); then
-                echo $container
+            echo
+            log_warning "Analytics-System wird zurückgesetzt (Daten bleiben erhalten)"
+            read -p "Analytics-System neu initialisieren? (Y/n): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                # Backup erstellen
+                local backup_dir="$ANALYTICS_DIR/backup-$(date +%s)"
+                mkdir -p "$backup_dir"
+                cp "$ANALYTICS_DIR"/*.csv "$backup_dir" 2>/dev/null || true
+                cp "$ANALYTICS_DIR"/*.conf "$backup_dir" 2>/dev/null || true
+                
+                # System neu initialisieren
+                init_analytics
+                
+                log_success "Analytics-System zurückgesetzt"
+                log_info "Backup erstellt in: $backup_dir"
             fi
-        fi
-    done)
+            ;;
+        6)
+            echo
+            log_info "Berechne Statistiken neu..."
+            
+            if [ -f "$PERFORMANCE_LOG" ] && [ $(wc -l < "$PERFORMANCE_LOG") -gt 1 ]; then
+                local stats_file="$ANALYTICS_DIR/computed-stats.txt"
+                
+                cat > "$stats_file" << EOF
+=== ANSIBLE PERFORMANCE STATISTIKEN ===
+Generiert: $(date)
+
+Gesamt-Ausführungen: $(tail -n +2 "$PERFORMANCE_LOG" | wc -l)
+Durchschnittliche Dauer: $(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3} END {printf "%.2fs", NR > 0 ? sum/NR : 0}')
+Gesamt-Laufzeit: $(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{sum+=$3} END {printf "%.2fs", sum}')
+Erfolgsrate: $(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{total++; if($6==0) success++} END {printf "%.1f%%", total > 0 ? (success*100)/total : 0}')
+
+Top-Playbooks (nach Häufigkeit):
+$(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{print $2}' | sort | uniq -c | sort -nr | head -5)
+
+Performance-Extremwerte:
+Schnellste Ausführung: $(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' 'NR==1{min=$3} {if($3<min) min=$3} END {printf "%.2fs", min}')
+Langsamste Ausführung: $(tail -n +2 "$PERFORMANCE_LOG" | awk -F',' '{if($3>max) max=$3} END {printf "%.2fs", max}')
+EOF
+                
+                log_success "Statistiken neu berechnet: $stats_file"
+                echo
+                cat "$stats_file"
+            else
+                log_warning "Keine Performance-Daten für Statistiken verfügbar"
+            fi
+            ;;
+        7) ;;
+    esac
     
-    if [ -z "$old_containers" ]; then
-        log_info "Keine alten Podman-Container gefunden."
-        return 0
-    fi
-    
-    echo "Gefundene alte Podman-Container:"
-    echo "$old_containers"
-    echo
-    
-    read -p "Diese Podman-Container löschen? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "$old_containers" | while read container; do
-            podman rm -f "$container" && log_success "Podman-Container '$container' gelöscht"
-        done
-    fi
+    read -p "$(echo -e "${CYAN}Drücke Enter zum Fortfahren...${NC}")"
+    show_performance_analytics
 }
 
-# Installation testen
-test_installation() {
-    log_info "Teste Ansible-Installation..."
-    
-    # Version prüfen
-    if ansible --version; then
-        log_success "Ansible ist funktionstüchtig"
-    else
-        log_error "Ansible-Test fehlgeschlagen"
-        return 1
-    fi
-    
-    # Lokaler Test
-    echo "---
-- hosts: localhost
-  connection: local
-  tasks:
-    - debug: msg='Ansible Test erfolgreich!'" > /tmp/ansible-test.yml
-    
-    if ansible-playbook /tmp/ansible-test.yml; then
-        log_success "Playbook-Test erfolgreich"
-    else
-        log_error "Playbook-Test fehlgeschlagen"
-        return 1
-    fi
-    
-    rm /tmp/ansible-test.yml
-}
-
-# Cleanup-Funktion
-cleanup() {
-    log_info "Räume temporäre Dateien auf..."
-    rm -f /tmp/ansible-test.yml
-}
-
-# Installation-Optionen
+# Installation-Optionen (bestehende Funktionen beibehalten)
 do_minimal_install() {
     update_system
     install_package "ansible"
@@ -3153,51 +3196,11 @@ do_full_install() {
     test_installation
 }
 
-do_custom_install() {
-    echo
-    log_info "Custom Installation - wähle Komponenten:"
-    
-    components=(
-        "Basis-Pakete"
-        "Docker"
-        "VSCode"
-        "Zusätzliche Tools"
-        "SSH-Schlüssel"
-        "Ansible-Config"
-        "Projekt-Template"
-        "Docker Test-Container"
-    )
-    
-    selected=()
-    
-    for i in "${!components[@]}"; do
-        read -p "Installiere ${components[$i]}? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            selected+=($i)
-        fi
-    done
-    
-    update_system
-    
-    for i in "${selected[@]}"; do
-        case $i in
-            0) install_base_packages ;;
-            1) install_docker ;;
-            2) install_vscode ;;
-            3) install_additional_tools ;;
-            4) setup_ssh_keys ;;
-            5) setup_ansible_config ;;
-            6) create_project_template ;;
-            7) setup_docker_test ;;
-        esac
-    done
-    
-    test_installation
-}
-
-# Hauptfunktion
+# Hauptfunktion mit erweiterten Features
 main() {
+    # Analytics initialisieren
+    init_analytics
+    
     show_banner
     check_root
     check_manjaro
@@ -3206,45 +3209,65 @@ main() {
     trap cleanup EXIT
     
     while true; do
-        show_menu
-        read -p "Wähle eine Option [1-10]: " choice
+        show_enhanced_menu
+        read -p "$(echo -e "${WHITE}Wähle eine Option [1-15]: ${BRIGHT_CYAN}")" choice
+        echo -e "${NC}"
+        
+        # Eingabe validieren
+        if ! [[ "$choice" =~ ^[1-9]$|^1[0-5]$ ]]; then
+            echo
+            echo -e "${RED}┌─ ❌ UNGÜLTIGE EINGABE ─────────────────────────────────────────────┐${NC}"
+            echo -e "${RED}│${NC} Bitte wähle eine Zahl zwischen 1 und 15.                      ${RED}│${NC}"
+            echo -e "${RED}└─────────────────────────────────────────────────────────────────────┘${NC}"
+            sleep 2
+            continue
+        fi
         
         case $choice in
             1)
-                log_info "Starte Basis-Installation..."
+                clear
+                print_header "🔧 BASIS-INSTALLATION" "$BRIGHT_YELLOW"
                 do_base_install
                 break
                 ;;
             2)
-                log_info "Starte vollständige Installation..."
+                clear
+                print_header "⚡ VOLLSTÄNDIGE INSTALLATION" "$BRIGHT_GREEN"
                 do_full_install
                 break
                 ;;
             3)
-                log_info "Starte minimale Installation..."
+                clear
+                print_header "📦 MINIMALE INSTALLATION" "$BRIGHT_BLUE"
                 do_minimal_install
                 break
                 ;;
             4)
+                clear
+                print_header "🎛️  CUSTOM INSTALLATION" "$BRIGHT_PURPLE"
                 do_custom_install
                 break
                 ;;
             5)
-                log_info "Richte nur Testumgebung ein..."
+                clear
+                print_header "🧪 TESTUMGEBUNG EINRICHTEN" "$CYAN"
                 setup_docker_test
                 break
                 ;;
             6)
-                log_info "Starte Docker-Container für isolierte Installation..."
+                clear
+                print_header "🔒 DOCKER-CONTAINER" "$BLUE"
                 run_in_docker_container
                 ;;
             7)
-                log_info "🚀 Automatische KW-Container-Erstellung + Vollinstallation (Docker)..."
+                clear
+                print_header "🐋 DOCKER AUTO-INSTALLATION" "$BRIGHT_BLUE"
                 create_weekly_container_auto
                 break
                 ;;
             8)
-                log_info "🐳 Automatische KW-Container-Erstellung + Vollinstallation (Podman - ROOTLESS)..."
+                clear
+                print_header "🐳 PODMAN AUTO-INSTALLATION (ROOTLESS)" "$BRIGHT_PURPLE"
                 create_podman_container_auto
                 break
                 ;;
@@ -3252,45 +3275,63 @@ main() {
                 manage_containers
                 ;;
             10)
-                log_info "Installation abgebrochen"
+                show_progress_demo
+                ;;
+            11)
+                show_health_dashboard
+                ;;
+            12)
+                show_remote_management
+                ;;
+            13)
+                show_playbook_builder
+                ;;
+            14)
+                show_performance_analytics
+                ;;
+            15)
+                echo
+                echo -e "${YELLOW}┌─ 👋 SCRIPT BEENDEN ────────────────────────────────────────────────┐${NC}"
+                echo -e "${YELLOW}│${NC} Möchtest du vor dem Beenden aufräumen?                         ${YELLOW}│${NC}"
+                echo -e "${YELLOW}└─────────────────────────────────────────────────────────────────────┘${NC}"
                 
-                # Cleanup-Option anbieten
-                read -p "Container aufräumen vor dem Beenden? (y/N): " -n 1 -r
+                read -p "$(echo -e "${WHITE}Container aufräumen? (y/N): ${NC}")" -n 1 -r
                 echo
                 if [[ $REPLY =~ ^[Yy]$ ]]; then
                     cleanup_containers
                 fi
                 
+                echo
+                echo -e "${GREEN}┌─ ✅ ENHANCED ANSIBLE INSTALLER ───────────────────────────────────┐${NC}"
+                echo -e "${GREEN}│${NC} Vielen Dank für die Nutzung der Enhanced Edition!             ${GREEN}│${NC}"
+                echo -e "${GREEN}│${NC} Neue Features: Health Dashboard, Remote Management,           ${GREEN}│${NC}"
+                echo -e "${GREEN}│${NC} Playbook Builder & Performance Analytics                       ${GREEN}│${NC}"
+                echo -e "${GREEN}│${NC} Dokumentation: https://docs.ansible.com/                      ${GREEN}│${NC}"
+                echo -e "${GREEN}└─────────────────────────────────────────────────────────────────────┘${NC}"
+                
                 exit 0
-                ;;
-            *)
-                log_error "Ungültige Auswahl. Bitte 1-10 wählen."
                 ;;
         esac
     done
     
     echo
-    log_success "Installation abgeschlossen!"
+    log_success "Enhanced Installation abgeschlossen!"
     echo
     log_info "🚀 Nächste Schritte:"
-    echo "1. Terminal neu starten (für Docker-Gruppe)"
-    echo "2. Für KW-Container: ./ansible.sh → Option 7"
-    echo "3. Container-Management: ./ansible.sh → Option 8"
-    echo "4. cd ~/ansible-projekte/webserver-beispiel"
-    echo "5. ansible-playbook playbooks/test.yml"
+    echo "1. Neue Features testen: Health Dashboard (Option 11)"
+    echo "2. Remote-Hosts verwalten: Remote Management (Option 12)"  
+    echo "3. Playbooks erstellen: Interactive Builder (Option 13)"
+    echo "4. Performance überwachen: Analytics (Option 14)"
+    echo "5. cd ~/ansible-projekte/webserver-beispiel"
+    echo "6. ansible-playbook playbooks/test.yml"
     echo
-    log_info "🐳 Container-Features:"
-    echo "• Automatische KW-Container: docker_$(get_calendar_week)"
-    echo "• Persistente Volumes für Projekte"
-    echo "• SSH-Zugang aktiviert"
-    echo "• Vollständige Ansible-Installation"
+    log_info "🩺 Erweiterte Features:"
+    echo "• Health Dashboard: System & Container Monitoring"
+    echo "• Remote Management: Container auf anderen Hosts"
+    echo "• Playbook Builder: Interaktive Erstellung"
+    echo "• Performance Analytics: Metriken & Optimierung"
     echo
-    log_info "📚 Hilfe:"
-    echo "• ansible --help"
-    echo "• docker ps (Container anzeigen)"
-    echo "• Dokumentation: https://docs.ansible.com/"
-    echo
-    log_success "Aktueller Container: $(get_current_container_name)"
+    log_success "Enhanced Ansible Installer v2.1 - Viel Erfolg!"
 }
 
 # Script starten
