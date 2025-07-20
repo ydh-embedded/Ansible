@@ -1,0 +1,31 @@
+project_name: "api-service"
+project_description: "REST API Service"
+container_name: "{{ project_name }}-container"
+container_image: "{{ project_name }}:latest"
+
+container_config:
+  ports:
+    - "8000:8000"  # API
+    - "8080:8080"  # Admin
+  volumes:
+    - "{{ project_base_dir }}/{{ project_name }}/data:/app/data"
+    - "{{ project_base_dir }}/{{ project_name }}/logs:/app/logs"
+  environment:
+    API_PORT: "8000"
+    ADMIN_PORT: "8080"
+    LOG_LEVEL: "INFO"
+
+dockerfile_config:
+  base_image: "python:3.11-slim"
+  working_dir: "/app"
+  python_requirements:
+    - "fastapi>=0.104.0"
+    - "uvicorn>=0.24.0"
+    - "sqlalchemy>=2.0.0"
+    - "psycopg2-binary>=2.9.0"
+  system_packages:
+    - "curl"
+    - "postgresql-client"
+  exposed_ports:
+    - "8000"
+    - "8080"
